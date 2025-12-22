@@ -1,0 +1,172 @@
+
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AIXOS | Tradmak Intelligence</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script>
+      tailwind.config = {
+        darkMode: 'class',
+        theme: {
+          extend: {
+            fontFamily: {
+              sans: ['"Plus Jakarta Sans"', 'sans-serif'],
+              display: ['Outfit', 'sans-serif'],
+            },
+            colors: {
+              primary: {
+                50: '#eff6ff',
+                100: '#dbeafe',
+                200: '#bfdbfe',
+                300: '#93c5fd',
+                400: '#60a5fa',
+                500: '#3b82f6',
+                600: '#2563eb',
+                700: '#1d4ed8',
+                800: '#1e40af',
+                900: '#1e3a8a',
+              },
+              brand: {
+                surface: 'var(--brand-surface)',
+                card: 'var(--brand-card)',
+                accent: '#3b82f6',
+                border: 'var(--brand-border)',
+                text: 'var(--brand-text)',
+                muted: 'var(--brand-muted)',
+                dock: 'var(--brand-dock)'
+              }
+            },
+            animation: {
+              'fade-in': 'fadeIn 0.5s ease-out forwards',
+              'slide-up': 'slideUp 0.4s ease-out forwards',
+              'pulse-soft': 'pulseSoft 4s infinite ease-in-out',
+              'mesh': 'meshAnim 25s infinite alternate ease-in-out',
+            },
+            keyframes: {
+              fadeIn: { '0%': { opacity: '0' }, '100%': { opacity: '1' } },
+              slideUp: { '0%': { transform: 'translateY(15px)', opacity: '0' }, '100%': { transform: 'translateY(0)', opacity: '1' } },
+              pulseSoft: { '0%, 100%': { opacity: '1', transform: 'scale(1)' }, '50%': { opacity: '0.8', transform: 'scale(1.01)' } },
+              meshAnim: {
+                '0%': { transform: 'translate(0,0) rotate(0deg) scale(1)' },
+                '100%': { transform: 'translate(10%, 10%) rotate(5deg) scale(1.15)' }
+              }
+            }
+          }
+        }
+      }
+    </script>
+    <style>
+      :root {
+        --brand-surface: #050506;
+        --brand-card: rgba(18, 18, 20, 0.7);
+        --brand-border: rgba(255, 255, 255, 0.08);
+        --brand-text: #F8FAFD;
+        --brand-muted: #71717A;
+        --brand-dock: rgba(20, 20, 24, 0.95);
+        --glass-blur: 24px;
+      }
+
+      .light-mode {
+        --brand-surface: #F8FAFD;
+        --brand-card: rgba(255, 255, 255, 0.65);
+        --brand-border: rgba(59, 130, 246, 0.12);
+        --brand-text: #0F172A;
+        --brand-muted: #64748B;
+        --brand-dock: rgba(255, 255, 255, 0.85);
+        --glass-blur: 40px;
+      }
+
+      body {
+        background-color: var(--brand-surface);
+        color: var(--brand-text);
+        overflow: hidden;
+        transition: background-color 0.8s cubic-bezier(0.4, 0, 0.2, 1), color 0.4s ease;
+      }
+
+      .glass-card {
+        background: var(--brand-card);
+        backdrop-filter: blur(var(--glass-blur));
+        -webkit-backdrop-filter: blur(var(--glass-blur));
+        border: 1px solid var(--brand-border);
+        box-shadow: 0 10px 40px -10px rgba(0, 0, 0, 0.2);
+        transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+      }
+
+      .light-mode .glass-card {
+        box-shadow: 0 15px 45px -15px rgba(59, 130, 246, 0.12);
+      }
+
+      .liquid-background {
+        position: fixed;
+        inset: 0;
+        z-index: -1;
+        overflow: hidden;
+        pointer-events: none;
+      }
+
+      .liquid-blob {
+        position: absolute;
+        width: 70vw;
+        height: 70vw;
+        border-radius: 50%;
+        filter: blur(140px);
+        opacity: 0.12;
+      }
+
+      .light-mode .liquid-blob {
+        opacity: 0.3;
+      }
+
+      .blob-1 { top: -15%; left: -10%; background: #3b82f6; }
+      .blob-2 { bottom: -15%; right: -10%; background: #a855f7; }
+      .blob-3 { top: 25%; right: 5%; background: #ffffff; opacity: 0.04; }
+
+      ::-webkit-scrollbar { width: 4px; }
+      ::-webkit-scrollbar-track { background: transparent; }
+      ::-webkit-scrollbar-thumb {
+        background: rgba(124, 124, 124, 0.15);
+        border-radius: 10px;
+      }
+      .light-mode ::-webkit-scrollbar-thumb { background: rgba(59, 130, 246, 0.15); }
+
+      .dock-glass {
+        background: var(--brand-dock);
+        backdrop-filter: blur(32px);
+        -webkit-backdrop-filter: blur(32px);
+        border: 1px solid var(--brand-border);
+        box-shadow: 0 20px 60px -20px rgba(0,0,0,0.3);
+      }
+      .light-mode .dock-glass {
+        box-shadow: 0 20px 60px -20px rgba(59, 130, 246, 0.15);
+      }
+    </style>
+    <script type="importmap">
+    {
+      "imports": {
+        "react/": "https://esm.sh/react@^19.2.3/",
+        "react": "https://esm.sh/react@^19.2.3",
+        "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
+        "@google/genai": "https://esm.sh/@google/genai@^1.34.0",
+        "lucide-react": "https://esm.sh/lucide-react@^0.562.0",
+        "react-router-dom": "https://esm.sh/react-router-dom@^7.11.0",
+        "recharts": "https://esm.sh/recharts@^3.6.0",
+        "zustand": "https://esm.sh/zustand@^5.0.9",
+        "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@2.48.1"
+      }
+    }
+    </script>
+  </head>
+  <body>
+    <div class="liquid-background">
+      <div class="liquid-blob blob-1 animate-mesh"></div>
+      <div class="liquid-blob blob-2 animate-mesh" style="animation-delay: -7s"></div>
+      <div class="liquid-blob blob-3 animate-mesh" style="animation-delay: -14s"></div>
+    </div>
+    <div id="root"></div>
+  </body>
+</html>

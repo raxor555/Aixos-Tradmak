@@ -1,0 +1,8 @@
+{
+  "name": "AIXOS by Tradmak",
+  "description": "A sophisticated AI-driven intelligence platform for seamless enterprise communication and workflow automation.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
