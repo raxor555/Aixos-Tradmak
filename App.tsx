@@ -1,19 +1,18 @@
 
 import React, { useEffect } from 'react';
-// Fix: Added @ts-ignore to bypass incorrect type definitions for react-router-dom members that are known to exist in the library version being used.
 // @ts-ignore
 import { HashRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
-import { Sidebar } from './components/Sidebar';
-import Dashboard from './pages/Dashboard';
-import { Conversations } from './pages/Conversations';
-import { Inquiries } from './pages/Inquiries';
-import { Channels } from './pages/Channels';
-import { ContactsPage } from './pages/Contacts';
-import { Login } from './pages/Login';
-import { AIChat } from './pages/AIChat';
-import { ChatbotMonitor } from './pages/ChatbotMonitor';
-import { supabase } from './services/supabase';
-import { useStore } from './store/useStore';
+import { Sidebar } from './components/Sidebar.tsx';
+import Dashboard from './pages/Dashboard.tsx';
+import { Conversations } from './pages/Conversations.tsx';
+import { Inquiries } from './pages/Inquiries.tsx';
+import { Channels } from './pages/Channels.tsx';
+import { ContactsPage } from './pages/Contacts.tsx';
+import { Login } from './pages/Login.tsx';
+import { AIChat } from './pages/AIChat.tsx';
+import { ChatbotMonitor } from './pages/ChatbotMonitor.tsx';
+import { supabase } from './services/supabase.ts';
+import { useStore } from './store/useStore.ts';
 import { Loader2 } from 'lucide-react';
 
 const AnalyticsPage = () => <div className="p-8"><h1 className="text-2xl font-bold">Advanced Analytics</h1><p className="text-zinc-500 mt-2">Deep insights into your support operations.</p></div>;
