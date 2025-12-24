@@ -1,6 +1,25 @@
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Sparkles, User, Bot, Loader2, ArrowRight, Plus, History, MessageSquare, Trash2, AlertCircle, Mic, MicOff } from 'lucide-react';
+import { 
+  Send, 
+  Sparkles, 
+  User, 
+  Bot, 
+  Loader2, 
+  ArrowRight, 
+  Plus, 
+  History, 
+  MessageSquare, 
+  Trash2, 
+  AlertCircle, 
+  Mic, 
+  MicOff,
+  Image as ImageIcon,
+  Search,
+  Video,
+  X,
+  Paperclip
+} from 'lucide-react';
 import { useStore } from '../store/useStore';
 import { supabase } from '../services/supabase';
 
@@ -17,6 +36,20 @@ interface AIConversation {
   created_at: string;
 }
 
+interface CommandOption {
+  id: string;
+  label: string;
+  prefix: string;
+  icon: any;
+  description: string;
+}
+
+const COMMAND_OPTIONS: CommandOption[] = [
+  { id: 'image', label: 'Create Image', prefix: '/CreateImage:', icon: ImageIcon, description: 'Generate visual assets via DALL-E/Flux' },
+  { id: 'research', label: 'Deep Research', prefix: '/DeepResearch:', icon: Search, description: 'Comprehensive web-grounded analysis' },
+  { id: 'video', label: 'Analyze Video', prefix: '/AnalyzeVideo:', icon: Video, description: 'Extract intelligence from video sources' },
+];
+
 export const AIChat: React.FC = () => {
   const { agent } = useStore();
   const [conversations, setConversations] = useState<AIConversation[]>([]);
@@ -27,12 +60,17 @@ export const AIChat: React.FC = () => {
   const [loadingHistory, setLoadingHistory] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isListening, setIsListening] = useState(false);
+  const [activeCommand, setActiveCommand] = useState<CommandOption | null>(null);
+  const [showResources, setShowResources] = useState(false);
+  const [attachments, setAttachments] = useState<File[]>([]);
+  
   const scrollRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<any>(null);
+  const resourceMenuRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const webhookUrl = 'https://n8n.srv1040836.hstgr.cloud/webhook/crm-chat';
 
-  // Dynamic Page Title Update
   useEffect(() => {
     if (agent?.name) {
       document.title = `Welcome, ${agent.name} | AIXOS`;
@@ -41,6 +79,16 @@ export const AIChat: React.FC = () => {
       document.title = 'AIXOS | Tradmak Intelligence';
     };
   }, [agent]);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (resourceMenuRef.current && !resourceMenuRef.current.contains(event.target as Node)) {
+        setShowResources(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   useEffect(() => {
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
@@ -132,9 +180,31 @@ export const AIChat: React.FC = () => {
     fetchConversations();
   };
 
+  const selectCommand = (cmd: CommandOption) => {
+    setActiveCommand(cmd);
+    setShowResources(false);
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    const validFiles = files.filter(f => f.type.startsWith('image/'));
+    
+    if (validFiles.length + attachments.length > 3) {
+      setError("Maximum 3 image attachments allowed.");
+      return;
+    }
+    
+    setAttachments(prev => [...prev, ...validFiles]);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const removeAttachment = (index: number) => {
+    setAttachments(prev => prev.filter((_, i) => i !== index));
+  };
+
   const handleSendMessage = async (e?: React.FormEvent) => {
     e?.preventDefault();
-    if (!input.trim() || isTyping || !agent?.id) return;
+    if ((!input.trim() && attachments.length === 0) || isTyping || !agent?.id) return;
     setError(null);
 
     let convId = activeConvId;
@@ -142,17 +212,22 @@ export const AIChat: React.FC = () => {
       if (!convId) {
         const { data: newConv } = await supabase
           .from('ai_conversations')
-          .insert({ agent_id: agent.id, title: input.substring(0, 30) + '...' })
+          .insert({ agent_id: agent.id, title: input.substring(0, 30) || 'Image Insight Session' })
           .select().single();
         if (!newConv) return;
         convId = newConv.id;
         setActiveConvId(convId);
       }
 
-      const userText = input;
+      const userText = activeCommand ? `${activeCommand.prefix} ${input}` : input;
+      
+      // Clear UI state immediately for responsiveness
       setInput('');
+      setAttachments([]);
+      setActiveCommand(null);
       setIsTyping(true);
 
+      // 1. Save locally to Supabase
       const { data: savedUserMsg } = await supabase
         .from('ai_messages')
         .insert({ conversation_id: convId, role: 'user', content: userText })
@@ -160,19 +235,27 @@ export const AIChat: React.FC = () => {
 
       if (savedUserMsg) setMessages(prev => [...prev, savedUserMsg]);
 
+      // 2. Prepare Binary Payload for Webhook
+      const formData = new FormData();
+      formData.append('message', userText);
+      formData.append('user', agent.name);
+      formData.append('agentId', agent.id);
+      formData.append('conversationId', convId);
+      formData.append('timestamp', new Date().toISOString());
+      
+      attachments.forEach((file, index) => {
+        formData.append(`file_${index}`, file);
+      });
+
       const response = await fetch(webhookUrl, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          message: userText,
-          user: agent.name,
-          agentId: agent.id,
-          conversationId: convId
-        }),
+        // Note: Do NOT set Content-Type header when using FormData, 
+        // the browser needs to set it with the boundary string automatically.
+        body: formData,
       });
 
       const resData = await response.json();
-      const aiResponse = typeof resData === 'string' ? resData : resData.output || resData.reply || "Request processed.";
+      const aiResponse = typeof resData === 'string' ? resData : resData.output || resData.reply || "Transmission received.";
 
       const { data: savedAiMsg } = await supabase
         .from('ai_messages')
@@ -326,28 +409,126 @@ export const AIChat: React.FC = () => {
                 </div>
               </div>
             )}
-            <div className="relative flex items-center dock-glass rounded-[2.5rem] p-3 focus-within:ring-2 focus-within:ring-primary-600/30 transition-all">
+
+            {/* Attachment Previews */}
+            {attachments.length > 0 && (
+              <div className="absolute bottom-full mb-4 left-4 flex gap-3 animate-fade-in">
+                {attachments.map((file, idx) => (
+                  <div key={idx} className="relative w-16 h-16 rounded-xl overflow-hidden border border-primary-500/30 shadow-xl group">
+                    <img 
+                      src={URL.createObjectURL(file)} 
+                      className="w-full h-full object-cover" 
+                      alt="preview" 
+                    />
+                    <button 
+                      type="button"
+                      onClick={() => removeAttachment(idx)}
+                      className="absolute top-1 right-1 w-5 h-5 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all scale-90"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Resource Dropdown Menu */}
+            {showResources && (
+              <div 
+                ref={resourceMenuRef}
+                className="absolute bottom-full mb-6 left-0 w-72 glass-card rounded-[2rem] p-3 shadow-3xl animate-slide-up z-50 border border-primary-500/20"
+              >
+                <div className="p-3 border-b border-brand-border mb-2">
+                  <span className="text-[9px] font-black text-brand-muted uppercase tracking-[0.3em]">Operational Resources</span>
+                </div>
+                {COMMAND_OPTIONS.map((cmd) => (
+                  <button
+                    key={cmd.id}
+                    type="button"
+                    onClick={() => selectCommand(cmd)}
+                    className="w-full flex items-center gap-4 p-4 rounded-2xl hover:bg-primary-600/10 transition-all text-left group"
+                  >
+                    <div className="w-10 h-10 rounded-xl bg-zinc-500/5 border border-brand-border flex items-center justify-center text-primary-600 group-hover:bg-primary-600 group-hover:text-white transition-all">
+                      <cmd.icon className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-bold text-brand-text group-hover:text-primary-600 transition-colors">{cmd.label}</p>
+                      <p className="text-[9px] text-brand-muted truncate font-medium">{cmd.description}</p>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+            
+            <div className="relative flex items-center dock-glass rounded-[2.5rem] p-3 shadow-[0_0_40px_rgba(59,130,246,0.12)] focus-within:shadow-[0_0_50px_rgba(59,130,246,0.2)] transition-all">
+              {/* Resource Trigger */}
+              <button
+                type="button"
+                onClick={() => setShowResources(!showResources)}
+                className={`w-14 h-14 rounded-full flex items-center justify-center transition-all ${
+                  showResources ? 'bg-primary-600 text-white' : 'text-brand-muted hover:text-primary-600'
+                }`}
+              >
+                <Sparkles className={`w-6 h-6 ${showResources ? 'animate-pulse' : ''}`} />
+              </button>
+
               <button
                 type="button"
                 onClick={toggleListening}
-                className={`w-14 h-14 rounded-full flex items-center justify-center transition-all ${
+                className={`w-12 h-12 rounded-full flex items-center justify-center transition-all ${
                   isListening ? 'bg-red-500 text-white animate-pulse' : 'text-brand-muted hover:text-primary-600'
                 }`}
               >
-                {isListening ? <MicOff className="w-6 h-6" /> : <Mic className="w-6 h-6" />}
+                {isListening ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
               </button>
-              
-              <textarea
-                rows={1}
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendMessage(); } }}
-                placeholder={isListening ? "Processing voice..." : "Consult AIXOS Intelligence..."}
-                className="flex-1 bg-transparent border-none focus:ring-0 text-brand-text text-lg py-4 px-4 resize-none font-medium placeholder:text-brand-muted/40"
+
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className={`w-12 h-12 rounded-full flex items-center justify-center transition-all ${
+                  attachments.length > 0 ? 'text-primary-600' : 'text-brand-muted hover:text-primary-600'
+                }`}
+              >
+                <Paperclip className="w-5 h-5" />
+              </button>
+              <input 
+                type="file" 
+                ref={fileInputRef} 
+                onChange={handleFileChange} 
+                className="hidden" 
+                accept="image/*" 
+                multiple 
               />
+              
+              <div className="flex-1 flex items-center gap-3 overflow-hidden px-4">
+                {/* Active Command Chip */}
+                {activeCommand && (
+                  <div className="flex-shrink-0 flex items-center gap-2 bg-primary-600/10 border border-primary-500/20 px-3.5 py-1.5 rounded-full group relative transition-all animate-fade-in">
+                    <activeCommand.icon className="w-3.5 h-3.5 text-primary-600" />
+                    <span className="text-[10px] font-black text-primary-600 uppercase tracking-widest leading-none">{activeCommand.prefix}</span>
+                    <button 
+                      type="button"
+                      onClick={() => setActiveCommand(null)}
+                      className="absolute -top-1 -right-1 w-4 h-4 bg-primary-600 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all shadow-lg active:scale-90"
+                    >
+                      <X className="w-2 h-2" />
+                    </button>
+                  </div>
+                )}
+
+                <textarea
+                  rows={1}
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendMessage(); } }}
+                  placeholder={isListening ? "Listening..." : "Ask AIXOS..."}
+                  className="flex-1 bg-transparent border-none focus:ring-0 text-brand-text text-lg py-4 resize-none font-medium placeholder:text-brand-muted/40 no-scrollbar outline-none"
+                />
+              </div>
+
               <button
                 type="submit"
-                disabled={!input.trim() || isTyping}
+                disabled={(!input.trim() && attachments.length === 0) || isTyping}
                 className="w-14 h-14 bg-primary-600 hover:bg-primary-500 disabled:opacity-50 text-white rounded-full flex items-center justify-center transition-all shadow-xl shadow-primary-900/30 active:scale-90"
               >
                 <Send className="w-6 h-6" />
