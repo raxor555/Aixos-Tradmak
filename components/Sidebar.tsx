@@ -12,7 +12,8 @@ import {
   Sparkles,
   Terminal,
   Sun,
-  Moon
+  Moon,
+  Mail
 } from 'lucide-react';
 // @ts-ignore
 import { Link, useLocation, useNavigate } from 'react-router-dom';
@@ -30,6 +31,7 @@ export const Sidebar: React.FC = () => {
     { icon: Sparkles, label: 'AI Chat', path: '/' },
     { icon: LayoutDashboard, label: 'Dashboard', path: '/dashboard' },
     { icon: MessageSquare, label: 'Conversations', path: '/conversations' },
+    { icon: Mail, label: 'Emails', path: '/emails' },
     { icon: Hash, label: 'Team Hub', path: '/channels' },
     ...(isAdmin ? [
       { icon: Terminal, label: 'Chatbot Logs', path: '/chatbot-logs' },

@@ -10,13 +10,14 @@ import { Channels } from './pages/Channels.tsx';
 import { ContactsPage } from './pages/Contacts.tsx';
 import { Login } from './pages/Login.tsx';
 import { AIChat } from './pages/AIChat.tsx';
+import { EmailsPage } from './pages/Emails.tsx';
+import { SettingsPage } from './pages/Settings.tsx';
 import { ChatbotMonitor } from './pages/ChatbotMonitor.tsx';
 import { supabase } from './services/supabase.ts';
 import { useStore } from './store/useStore.ts';
 import { Loader2 } from 'lucide-react';
 
 const AnalyticsPage = () => <div className="p-8"><h1 className="text-2xl font-bold">Advanced Analytics</h1><p className="text-zinc-500 mt-2">Deep insights into your support operations.</p></div>;
-const SettingsPage = () => <div className="p-8"><h1 className="text-2xl font-bold">Settings</h1><p className="text-zinc-500 mt-2">Configure your AIXOS platform.</p></div>;
 
 const AuthGuard = ({ children, requireAdmin = false }: { children: React.ReactNode, requireAdmin?: boolean }) => {
   const { user, agent, loading } = useStore();
@@ -89,6 +90,7 @@ const App: React.FC = () => {
                       <Route path="/" element={<AIChat />} />
                       <Route path="/dashboard" element={<Dashboard />} />
                       <Route path="/conversations" element={<Conversations />} />
+                      <Route path="/emails" element={<EmailsPage />} />
                       <Route path="/channels" element={<Channels />} />
                       <Route path="/chatbot-logs" element={<AuthGuard requireAdmin><ChatbotMonitor /></AuthGuard>} />
                       <Route path="/inquiries" element={<AuthGuard requireAdmin><Inquiries /></AuthGuard>} />
