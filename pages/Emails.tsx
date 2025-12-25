@@ -50,21 +50,44 @@ export const EmailsPage: React.FC = () => {
   useEffect(() => {
     fetchConfig();
     fetchEmails();
-    ensureSmtpScript();
   }, [activeTab]);
-
-  const ensureSmtpScript = () => {
-    if (!(window as any).Email) {
-      const script = document.createElement('script');
-      script.src = "https://smtpjs.com/v3/smtp.js";
-      script.async = true;
-      document.body.appendChild(script);
-    }
-  };
 
   const fetchConfig = async () => {
     const { data } = await supabase.from('email_settings').select('*').single();
     setConfig(data);
+  };
+
+  const loadSmtpBridge = (): Promise<any> => {
+    return new Promise((resolve, reject) => {
+      if ((window as any).Email) {
+        resolve((window as any).Email);
+        return;
+      }
+
+      const existingScript = document.querySelector('script[src*="smtpjs.com"]');
+      if (existingScript) {
+        let attempts = 0;
+        const interval = setInterval(() => {
+          if ((window as any).Email) {
+            clearInterval(interval);
+            resolve((window as any).Email);
+          }
+          if (attempts > 50) {
+            clearInterval(interval);
+            reject(new Error("SMTP.js timed out while loading."));
+          }
+          attempts++;
+        }, 100);
+        return;
+      }
+
+      const script = document.createElement('script');
+      script.src = "https://smtpjs.com/v3/smtp.js";
+      script.async = true;
+      script.onload = () => resolve((window as any).Email);
+      script.onerror = () => reject(new Error("Failed to load SMTP.js. Check your connection or browser settings."));
+      document.head.appendChild(script);
+    });
   };
 
   const fetchEmails = async () => {
@@ -91,17 +114,10 @@ export const EmailsPage: React.FC = () => {
     setSending(true);
 
     try {
-      // Re-check and wait for script if needed
-      let SmtpBridge = (window as any).Email;
+      const SmtpBridge = await loadSmtpBridge();
       
       if (!SmtpBridge) {
-        ensureSmtpScript();
-        await new Promise(r => setTimeout(r, 1000));
-        SmtpBridge = (window as any).Email;
-      }
-
-      if (!SmtpBridge) {
-        throw new Error("SMTP Bridge (SMTP.js) not found. This is usually caused by an ad-blocker blocking the connection to smtpjs.com.");
+        throw new Error("SMTP Bridge initialized but the 'Email' object is missing.");
       }
 
       // Browser-Direct SMTP via SMTP.js Bridge

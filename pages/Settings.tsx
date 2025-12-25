@@ -40,17 +40,7 @@ export const SettingsPage: React.FC = () => {
 
   useEffect(() => {
     fetchSettings();
-    ensureSmtpScript();
   }, []);
-
-  const ensureSmtpScript = () => {
-    if (!(window as any).Email) {
-      const script = document.createElement('script');
-      script.src = "https://smtpjs.com/v3/smtp.js";
-      script.async = true;
-      document.body.appendChild(script);
-    }
-  };
 
   const fetchSettings = async () => {
     try {
@@ -70,6 +60,41 @@ export const SettingsPage: React.FC = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const loadSmtpBridge = (): Promise<any> => {
+    return new Promise((resolve, reject) => {
+      if ((window as any).Email) {
+        resolve((window as any).Email);
+        return;
+      }
+
+      // Check if the script is already in the document but not yet loaded
+      const existingScript = document.querySelector('script[src*="smtpjs.com"]');
+      if (existingScript) {
+        // Wait for it to load
+        let attempts = 0;
+        const interval = setInterval(() => {
+          if ((window as any).Email) {
+            clearInterval(interval);
+            resolve((window as any).Email);
+          }
+          if (attempts > 50) { // 5 seconds timeout
+            clearInterval(interval);
+            reject(new Error("SMTP.js timed out while loading."));
+          }
+          attempts++;
+        }, 100);
+        return;
+      }
+
+      const script = document.createElement('script');
+      script.src = "https://smtpjs.com/v3/smtp.js";
+      script.async = true;
+      script.onload = () => resolve((window as any).Email);
+      script.onerror = () => reject(new Error("Failed to load SMTP.js. Please check your internet connection or browser security settings."));
+      document.head.appendChild(script);
+    });
   };
 
   const handleSave = async (e: React.FormEvent) => {
@@ -101,19 +126,10 @@ export const SettingsPage: React.FC = () => {
     setTesting(true);
     setMessage(null);
     try {
-      // Re-check and wait for script if needed
-      let SmtpBridge = (window as any).Email;
+      const SmtpBridge = await loadSmtpBridge();
       
       if (!SmtpBridge) {
-        // One last attempt to inject
-        ensureSmtpScript();
-        // Brief wait
-        await new Promise(r => setTimeout(r, 1000));
-        SmtpBridge = (window as any).Email;
-      }
-
-      if (!SmtpBridge) {
-        throw new Error("SMTP.js library failed to load. This usually happens if an ad-blocker is blocking smtpjs.com or if you are offline.");
+        throw new Error("SMTP Bridge initialized but the 'Email' object is missing.");
       }
 
       // SMTP.js browser-direct test
@@ -124,7 +140,7 @@ export const SettingsPage: React.FC = () => {
         To: formData.from_email,
         From: formData.from_email,
         Subject: "AIXOS Browser Relay: Test Signal",
-        Body: "Your browser is successfully communicating with your SMTP server via the AIXOS bridge."
+        Body: `Hello ${formData.from_name},\n\nYour browser is successfully communicating with your SMTP server via the AIXOS bridge.\n\nSent at: ${new Date().toLocaleString()}`
       });
 
       if (result === "OK") {
