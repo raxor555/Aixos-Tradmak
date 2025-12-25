@@ -40,7 +40,17 @@ export const SettingsPage: React.FC = () => {
 
   useEffect(() => {
     fetchSettings();
+    ensureSmtpScript();
   }, []);
+
+  const ensureSmtpScript = () => {
+    if (!(window as any).Email) {
+      const script = document.createElement('script');
+      script.src = "https://smtpjs.com/v3/smtp.js";
+      script.async = true;
+      document.body.appendChild(script);
+    }
+  };
 
   const fetchSettings = async () => {
     try {
@@ -91,11 +101,19 @@ export const SettingsPage: React.FC = () => {
     setTesting(true);
     setMessage(null);
     try {
-      // Access Email via window to avoid "Email is not defined" error if script loading is delayed
-      const SmtpBridge = (window as any).Email;
+      // Re-check and wait for script if needed
+      let SmtpBridge = (window as any).Email;
       
       if (!SmtpBridge) {
-        throw new Error("SMTP Bridge (SMTP.js) not found. Please ensure you are online and ad-blockers are disabled for this site.");
+        // One last attempt to inject
+        ensureSmtpScript();
+        // Brief wait
+        await new Promise(r => setTimeout(r, 1000));
+        SmtpBridge = (window as any).Email;
+      }
+
+      if (!SmtpBridge) {
+        throw new Error("SMTP.js library failed to load. This usually happens if an ad-blocker is blocking smtpjs.com or if you are offline.");
       }
 
       // SMTP.js browser-direct test
@@ -116,7 +134,7 @@ export const SettingsPage: React.FC = () => {
       }
     } catch (err: any) {
       setMessage({ 
-        text: 'SMTP Relay Error: ' + err.message, 
+        text: 'Relay Error: ' + err.message, 
         type: 'error' 
       });
     } finally {

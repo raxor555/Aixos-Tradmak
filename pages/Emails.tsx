@@ -50,7 +50,17 @@ export const EmailsPage: React.FC = () => {
   useEffect(() => {
     fetchConfig();
     fetchEmails();
+    ensureSmtpScript();
   }, [activeTab]);
+
+  const ensureSmtpScript = () => {
+    if (!(window as any).Email) {
+      const script = document.createElement('script');
+      script.src = "https://smtpjs.com/v3/smtp.js";
+      script.async = true;
+      document.body.appendChild(script);
+    }
+  };
 
   const fetchConfig = async () => {
     const { data } = await supabase.from('email_settings').select('*').single();
@@ -81,11 +91,17 @@ export const EmailsPage: React.FC = () => {
     setSending(true);
 
     try {
-      // Access Email via window to avoid "Email is not defined" error
-      const SmtpBridge = (window as any).Email;
+      // Re-check and wait for script if needed
+      let SmtpBridge = (window as any).Email;
       
       if (!SmtpBridge) {
-        throw new Error("SMTP Bridge (SMTP.js) not found. Check your connection.");
+        ensureSmtpScript();
+        await new Promise(r => setTimeout(r, 1000));
+        SmtpBridge = (window as any).Email;
+      }
+
+      if (!SmtpBridge) {
+        throw new Error("SMTP Bridge (SMTP.js) not found. This is usually caused by an ad-blocker blocking the connection to smtpjs.com.");
       }
 
       // Browser-Direct SMTP via SMTP.js Bridge
