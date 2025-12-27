@@ -41,7 +41,7 @@ const channelData = [
 ];
 
 const StatCard = ({ title, value, icon: Icon, trend, trendValue }: any) => (
-  <div className="glass-card p-7 rounded-[2rem] group hover:border-primary-500/40 transition-all duration-500 shadow-sm relative overflow-hidden">
+  <div className="glass-card p-6 md:p-7 rounded-[2rem] group hover:border-primary-500/40 transition-all duration-500 shadow-sm relative overflow-hidden">
     <div className="absolute top-0 right-0 w-32 h-32 bg-primary-600/5 rounded-full blur-3xl -mr-12 -mt-12 group-hover:bg-primary-600/10 transition-colors" />
     <div className="flex justify-between items-start mb-6 relative z-10">
       <div className="p-4 bg-zinc-500/5 rounded-2xl border border-brand-border group-hover:scale-110 transition-transform">
@@ -53,7 +53,7 @@ const StatCard = ({ title, value, icon: Icon, trend, trendValue }: any) => (
       </div>
     </div>
     <p className="text-brand-muted text-[10px] font-extrabold uppercase tracking-[0.2em] mb-2">{title}</p>
-    <h3 className="text-4xl font-display font-bold text-brand-text tracking-tight">{value}</h3>
+    <h3 className="text-3xl md:text-4xl font-display font-bold text-brand-text tracking-tight">{value}</h3>
   </div>
 );
 
@@ -61,27 +61,27 @@ const Dashboard: React.FC = () => {
   const { theme } = useStore();
   
   return (
-    <div className="flex-1 overflow-y-auto p-10 space-y-10 animate-fade-in custom-scrollbar">
-      <header className="flex justify-between items-end">
+    <div className="flex-1 overflow-y-auto p-6 md:p-10 space-y-10 animate-fade-in custom-scrollbar">
+      <header className="flex flex-col md:flex-row md:justify-between md:items-end gap-6">
         <div>
           <div className="flex items-center gap-3 mb-2">
             <LayoutDashboard className="w-5 h-5 text-primary-500" />
             <span className="text-[10px] font-extrabold uppercase tracking-[0.3em] text-brand-muted">Operational Center</span>
           </div>
-          <h1 className="text-5xl font-display font-bold text-brand-text mb-3 tracking-tight">System Performance</h1>
+          <h1 className="text-4xl md:text-5xl font-display font-bold text-brand-text mb-3 tracking-tight">System Performance</h1>
           <p className="text-brand-muted font-bold text-sm tracking-wide">Real-time intelligence auditing for Tradmak enterprise operations.</p>
         </div>
         <div className="flex gap-4">
-          <button className="px-6 py-3.5 bg-zinc-500/5 border border-brand-border rounded-2xl text-brand-muted text-[10px] font-extrabold uppercase tracking-widest hover:text-brand-text hover:bg-zinc-500/10 transition-all shadow-sm">
-            Temporal: 7 Days
+          <button className="flex-1 md:flex-none px-6 py-3.5 bg-zinc-500/5 border border-brand-border rounded-2xl text-brand-muted text-[10px] font-extrabold uppercase tracking-widest hover:text-brand-text hover:bg-zinc-500/10 transition-all shadow-sm">
+            Temporal: 7D
           </button>
-          <button className="px-7 py-3.5 bg-primary-600 text-white rounded-2xl text-[10px] font-extrabold uppercase tracking-widest hover:bg-primary-700 transition-all shadow-xl shadow-primary-900/30 active:scale-95">
-            Generate Intelligence
+          <button className="flex-1 md:flex-none px-7 py-3.5 bg-primary-600 text-white rounded-2xl text-[10px] font-extrabold uppercase tracking-widest hover:bg-primary-700 transition-all shadow-xl shadow-primary-900/30 active:scale-95">
+            Sync Logic
           </button>
         </div>
       </header>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 md:gap-8">
         <StatCard title="Active Network" value="3,124" icon={Users} trend="up" trendValue="+14.2%" />
         <StatCard title="Total Comms" value="158" icon={MessageCircle} trend="up" trendValue="+4.8%" />
         <StatCard title="Neural Latency" value="0.8s" icon={Clock} trend="down" trendValue="-22.5%" />
@@ -89,17 +89,15 @@ const Dashboard: React.FC = () => {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        <div className="lg:col-span-2 glass-card rounded-[2.5rem] p-10 shadow-sm">
+        <div className="lg:col-span-2 glass-card rounded-[2.5rem] p-6 md:p-10 shadow-sm overflow-hidden">
           <div className="flex items-center justify-between mb-10">
             <h3 className="text-2xl font-display font-bold text-brand-text">Flow Dynamics</h3>
-            <div className="flex items-center gap-6">
-              <div className="flex items-center gap-2">
-                <div className="w-2 h-2 rounded-full bg-primary-500 shadow-[0_0_8px_rgba(59,130,246,0.5)]" />
-                <span className="text-[10px] font-extrabold text-brand-muted uppercase tracking-widest">Inbound Throughput</span>
-              </div>
+            <div className="hidden sm:flex items-center gap-2">
+              <div className="w-2 h-2 rounded-full bg-primary-500 shadow-[0_0_8px_rgba(59,130,246,0.5)]" />
+              <span className="text-[10px] font-extrabold text-brand-muted uppercase tracking-widest">Inbound Throughput</span>
             </div>
           </div>
-          <div className="h-96 w-full">
+          <div className="h-64 md:h-96 w-full">
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={data}>
                 <defs>
@@ -127,7 +125,7 @@ const Dashboard: React.FC = () => {
           </div>
         </div>
 
-        <div className="glass-card rounded-[2.5rem] p-10 shadow-sm flex flex-col">
+        <div className="glass-card rounded-[2.5rem] p-6 md:p-10 shadow-sm flex flex-col">
           <h3 className="text-2xl font-display font-bold text-brand-text mb-10">Neural Sources</h3>
           <div className="flex-1 flex flex-col justify-center">
             <div className="h-64 w-full mb-10">
@@ -151,12 +149,12 @@ const Dashboard: React.FC = () => {
                 </BarChart>
               </ResponsiveContainer>
             </div>
-            <div className="space-y-6">
+            <div className="space-y-4 md:space-y-6">
               {channelData.map((item) => (
                 <div key={item.name} className="flex items-center justify-between group">
                   <div className="flex items-center gap-4">
-                    <div className="w-4 h-4 rounded-full border-2 border-brand-border transition-transform group-hover:scale-125" style={{ backgroundColor: item.color }} />
-                    <span className="text-[11px] font-extrabold text-brand-muted uppercase tracking-widest group-hover:text-brand-text transition-colors">{item.name}</span>
+                    <div className="w-3.5 h-3.5 rounded-full border-2 border-brand-border transition-transform group-hover:scale-125" style={{ backgroundColor: item.color }} />
+                    <span className="text-[10px] font-extrabold text-brand-muted uppercase tracking-widest group-hover:text-brand-text transition-colors">{item.name}</span>
                   </div>
                   <span className="text-sm font-black text-brand-text tracking-tight">{item.value}</span>
                 </div>

@@ -32,7 +32,8 @@ export const Login: React.FC = () => {
     try {
       if (isSignup) {
         const formattedPhone = formatPhoneNumber(phone);
-        const { data: authData, error: signupError } = await supabase.auth.signUp({
+        // Fixed: Cast to any to resolve missing signUp method on SupabaseAuthClient type reported by the compiler
+        const { data: authData, error: signupError } = await (supabase.auth as any).signUp({
           email: email.trim(),
           password: password,
           options: {
@@ -65,7 +66,8 @@ export const Login: React.FC = () => {
           ? { email: identifier.trim(), password } 
           : { phone: formatPhoneNumber(identifier), password };
 
-        const { error: authError } = await supabase.auth.signInWithPassword(loginPayload);
+        // Fixed: Cast to any to resolve missing signInWithPassword method on SupabaseAuthClient type reported by the compiler
+        const { error: authError } = await (supabase.auth as any).signInWithPassword(loginPayload);
         if (authError) throw authError;
       }
 

@@ -18,7 +18,8 @@ import {
   Search,
   Video,
   X,
-  Paperclip
+  Paperclip,
+  PanelLeft
 } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import { supabase } from '../services/supabase';
@@ -63,6 +64,7 @@ export const AIChat: React.FC = () => {
   const [activeCommand, setActiveCommand] = useState<CommandOption | null>(null);
   const [showResources, setShowResources] = useState(false);
   const [attachments, setAttachments] = useState<File[]>([]);
+  const [historyOpen, setHistoryOpen] = useState(false);
   
   const scrollRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<any>(null);
@@ -170,6 +172,7 @@ export const AIChat: React.FC = () => {
     if (data) {
       setActiveConvId(data.id);
       fetchConversations();
+      setHistoryOpen(false);
     }
   };
 
@@ -219,15 +222,23 @@ export const AIChat: React.FC = () => {
         setActiveConvId(convId);
       }
 
+      // Fetch UNLOCKED knowledge context
+      const { data: unlockedResources } = await supabase
+        .from('unlocked_resources')
+        .select('resource:resources(*)')
+        .eq('agent_id', agent.id);
+
+      const knowledgeContext = (unlockedResources || [])
+        .map(u => `${(u.resource as any).name}: ${(u.resource as any).knowledge_content}`)
+        .join('\n');
+
       const userText = activeCommand ? `${activeCommand.prefix} ${input}` : input;
       
-      // Clear UI state immediately for responsiveness
       setInput('');
       setAttachments([]);
       setActiveCommand(null);
       setIsTyping(true);
 
-      // 1. Save locally to Supabase
       const { data: savedUserMsg } = await supabase
         .from('ai_messages')
         .insert({ conversation_id: convId, role: 'user', content: userText })
@@ -235,12 +246,12 @@ export const AIChat: React.FC = () => {
 
       if (savedUserMsg) setMessages(prev => [...prev, savedUserMsg]);
 
-      // 2. Prepare Binary Payload for Webhook
       const formData = new FormData();
       formData.append('message', userText);
       formData.append('user', agent.name);
       formData.append('agentId', agent.id);
       formData.append('conversationId', convId);
+      formData.append('knowledgeContext', knowledgeContext);
       formData.append('timestamp', new Date().toISOString());
       
       attachments.forEach((file, index) => {
@@ -249,8 +260,6 @@ export const AIChat: React.FC = () => {
 
       const response = await fetch(webhookUrl, {
         method: 'POST',
-        // Note: Do NOT set Content-Type header when using FormData, 
-        // the browser needs to set it with the boundary string automatically.
         body: formData,
       });
 
@@ -275,68 +284,89 @@ export const AIChat: React.FC = () => {
   };
 
   return (
-    <div className="flex-1 flex bg-brand-surface relative overflow-hidden h-screen transition-colors duration-500">
-      {/* History Sidebar */}
-      <div className="w-72 glass-card border-r border-brand-border flex flex-col z-20">
-        <div className="p-6">
-          <button 
-            onClick={startNewChat}
-            className="w-full flex items-center justify-center gap-2 py-4 bg-primary-600 hover:bg-primary-500 text-white rounded-2xl font-bold transition-all shadow-lg shadow-primary-900/30 active:scale-[0.98]"
-          >
-            <Plus className="w-5 h-5" />
-            New AI Session
-          </button>
-        </div>
+    <div className="flex-1 flex bg-brand-surface relative overflow-hidden h-full transition-colors duration-500">
+      <button 
+        onClick={() => setHistoryOpen(true)}
+        className="absolute top-4 left-4 z-30 p-2.5 bg-brand-card rounded-xl border border-brand-border text-brand-muted hover:text-primary-600 shadow-sm backdrop-blur-md"
+        title="Open Archive"
+      >
+        <PanelLeft className="w-5 h-5" />
+      </button>
 
-        <div className="flex-1 overflow-y-auto px-4 pb-6 custom-scrollbar">
-          <div className="flex items-center gap-2 px-2 mb-4 opacity-60">
-            <History className="w-4 h-4 text-brand-muted" />
-            <span className="text-[10px] font-extrabold text-brand-muted uppercase tracking-[0.2em]">Historical Cache</span>
+      <>
+        {historyOpen && (
+          <div 
+            className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[80] animate-fade-in"
+            onClick={() => setHistoryOpen(false)}
+          />
+        )}
+        <div className={`
+          fixed inset-y-0 left-0 z-[90] w-72 glass-card border-r border-brand-border flex flex-col transition-all duration-500 transform
+          ${historyOpen ? 'translate-x-0' : '-translate-x-full'}
+        `}>
+          <div className="p-6 flex items-center justify-between border-b border-brand-border/50">
+            <h2 className="text-[10px] font-extrabold text-brand-muted uppercase tracking-[0.2em] flex items-center gap-2">
+              <History className="w-4 h-4" /> Neural Archive
+            </h2>
+            <button onClick={() => setHistoryOpen(false)} className="p-1 text-brand-muted hover:text-brand-text transition-colors">
+              <X className="w-5 h-5" />
+            </button>
           </div>
 
-          <div className="space-y-1">
-            {loadingHistory ? (
-              <div className="flex justify-center py-12"><Loader2 className="w-6 h-6 animate-spin text-primary-500" /></div>
-            ) : conversations.length === 0 ? (
-              <p className="text-center text-[10px] font-bold uppercase tracking-widest text-brand-muted opacity-40 py-8">Empty Archive</p>
-            ) : conversations.map(conv => (
-              <div 
-                key={conv.id}
-                onClick={() => setActiveConvId(conv.id)}
-                className={`group flex items-center justify-between w-full p-3.5 rounded-2xl cursor-pointer transition-all ${
-                  activeConvId === conv.id 
-                    ? 'bg-primary-600/10 text-primary-600 border border-primary-500/20 shadow-sm' 
-                    : 'text-brand-muted hover:bg-zinc-500/5 hover:text-brand-text border border-transparent'
-                }`}
-              >
-                <div className="flex items-center gap-3 truncate">
-                  <MessageSquare className={`w-4 h-4 flex-shrink-0 ${activeConvId === conv.id ? 'text-primary-600' : 'text-brand-muted'}`} />
-                  <span className="text-sm font-bold truncate">{conv.title}</span>
+          <div className="p-6 border-b border-brand-border">
+            <button 
+              onClick={startNewChat}
+              className="w-full flex items-center justify-center gap-2 py-4 bg-primary-600 hover:bg-primary-500 text-white rounded-2xl font-bold transition-all shadow-lg shadow-primary-900/30 active:scale-[0.98]"
+            >
+              <Plus className="w-5 h-5" />
+              New AI Session
+            </button>
+          </div>
+
+          <div className="flex-1 overflow-y-auto px-4 py-6 custom-scrollbar no-scrollbar">
+            <div className="space-y-1">
+              {loadingHistory ? (
+                <div className="flex justify-center py-12"><Loader2 className="w-6 h-6 animate-spin text-primary-500" /></div>
+              ) : conversations.length === 0 ? (
+                <p className="text-center text-[10px] font-bold uppercase tracking-widest text-brand-muted opacity-40 py-8">Empty Archive</p>
+              ) : conversations.map(conv => (
+                <div 
+                  key={conv.id}
+                  onClick={() => { setActiveConvId(conv.id); setHistoryOpen(false); }}
+                  className={`group flex items-center justify-between w-full p-3.5 rounded-2xl cursor-pointer transition-all ${
+                    activeConvId === conv.id 
+                      ? 'bg-primary-600/10 text-primary-600 border border-primary-500/20 shadow-sm' 
+                      : 'text-brand-muted hover:bg-zinc-500/5 hover:text-brand-text border border-transparent'
+                  }`}
+                >
+                  <div className="flex items-center gap-3 truncate">
+                    <MessageSquare className={`w-4 h-4 flex-shrink-0 ${activeConvId === conv.id ? 'text-primary-600' : 'text-brand-muted'}`} />
+                    <span className="text-sm font-bold truncate">{conv.title}</span>
+                  </div>
+                  <button onClick={(e) => deleteConversation(conv.id, e)} className="opacity-0 group-hover:opacity-100 p-1 hover:text-red-500 transition-all">
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
                 </div>
-                <button onClick={(e) => deleteConversation(conv.id, e)} className="opacity-0 group-hover:opacity-100 p-1 hover:text-red-500 transition-all">
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
         </div>
-      </div>
+      </>
 
-      {/* Main Content */}
-      <div className="flex-1 flex flex-col relative z-10">
+      <div className="flex-1 flex flex-col relative z-10 w-full">
         {!activeConvId && messages.length === 0 ? (
-          <div className="flex-1 flex flex-col items-center justify-center p-8 animate-fade-in text-center">
-            <div className="w-24 h-24 bg-primary-600 rounded-[2.5rem] flex items-center justify-center mb-10 shadow-3xl shadow-primary-900/40 animate-pulse-soft">
-              <Sparkles className="w-12 h-12 text-white" />
+          <div className="flex-1 flex flex-col items-center justify-center p-6 md:p-8 animate-fade-in text-center overflow-y-auto custom-scrollbar">
+            <div className="w-20 h-20 md:w-24 md:h-24 bg-primary-600 rounded-[2rem] md:rounded-[2.5rem] flex items-center justify-center mb-8 md:mb-10 shadow-3xl shadow-primary-900/40 animate-pulse-soft">
+              <Sparkles className="w-10 h-10 md:w-12 md:h-12 text-white" />
             </div>
-            <h1 className="text-5xl md:text-6xl font-display font-bold text-brand-text mb-6">
+            <h1 className="text-4xl md:text-6xl font-display font-bold text-brand-text mb-4 md:mb-6">
               Welcome, <span className="text-primary-600">{agent?.name}</span>
             </h1>
-            <p className="text-brand-muted text-xl max-w-lg leading-relaxed mb-12 font-medium opacity-80">
+            <p className="text-brand-muted text-lg md:text-xl max-w-lg leading-relaxed mb-8 md:mb-12 font-medium opacity-80">
               AIXOS is powered by Tradmak Intelligence. What shall we optimize or automate today?
             </p>
             
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 w-full max-w-3xl">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 md:gap-5 w-full max-w-3xl">
               {[
                 "Analyze support efficiency",
                 "Draft weekly performance report",
@@ -346,7 +376,7 @@ export const AIChat: React.FC = () => {
                 <button
                   key={suggestion}
                   onClick={() => { setInput(suggestion); handleSendMessage(); }}
-                  className="glass-card p-6 text-left group hover:border-primary-600 transition-all rounded-[1.5rem]"
+                  className="glass-card p-5 md:p-6 text-left group hover:border-primary-600 transition-all rounded-[1.5rem]"
                 >
                   <div className="flex justify-between items-center">
                     <span className="text-sm font-bold text-brand-text">{suggestion}</span>
@@ -357,26 +387,26 @@ export const AIChat: React.FC = () => {
             </div>
           </div>
         ) : (
-          <div ref={scrollRef} className="flex-1 overflow-y-auto p-10 md:p-16 space-y-12 custom-scrollbar">
-            <div className="max-w-4xl mx-auto space-y-12">
+          <div ref={scrollRef} className="flex-1 overflow-y-auto p-6 md:p-16 space-y-8 md:space-y-12 custom-scrollbar">
+            <div className="max-w-4xl mx-auto space-y-8 md:space-y-12">
               {messages.map((msg) => {
                 const isAI = msg.role === 'ai';
                 return (
-                  <div key={msg.id} className={`flex gap-8 animate-slide-up ${isAI ? 'items-start' : 'flex-row-reverse items-start'}`}>
-                    <div className={`w-12 h-12 rounded-2xl flex-shrink-0 flex items-center justify-center shadow-lg ${
+                  <div key={msg.id} className={`flex gap-4 md:gap-8 animate-slide-up ${isAI ? 'items-start' : 'flex-row-reverse items-start'}`}>
+                    <div className={`w-10 h-10 md:w-12 md:h-12 rounded-xl md:rounded-2xl flex-shrink-0 flex items-center justify-center shadow-lg ${
                       isAI ? 'bg-primary-600' : 'bg-brand-card dark:bg-zinc-800'
                     }`}>
-                      {isAI ? <Bot className="w-7 h-7 text-white" /> : <User className="w-7 h-7 text-brand-muted" />}
+                      {isAI ? <Bot className="w-6 h-6 md:w-7 md:h-7 text-white" /> : <User className="w-6 h-6 md:w-7 md:h-7 text-brand-muted" />}
                     </div>
-                    <div className={`flex-1 max-w-3xl ${!isAI ? 'text-right' : 'text-left'}`}>
-                      <div className={`inline-block px-8 py-6 rounded-[2.2rem] text-base md:text-lg leading-relaxed shadow-lg border ${
+                    <div className={`flex-1 max-w-[85%] md:max-w-3xl ${!isAI ? 'text-right' : 'text-left'}`}>
+                      <div className={`inline-block px-6 py-4 md:px-8 md:py-6 rounded-[1.5rem] md:rounded-[2.2rem] text-sm md:text-lg leading-relaxed shadow-lg border ${
                         isAI 
                           ? 'glass-card text-brand-text rounded-tl-none' 
                           : 'bg-primary-600 text-white border-primary-500 rounded-tr-none'
                       }`}>
                         {msg.content}
                       </div>
-                      <p className="text-[10px] text-brand-muted mt-3 font-extrabold uppercase tracking-[0.2em] opacity-60">
+                      <p className="text-[10px] text-brand-muted mt-2 md:mt-3 font-extrabold uppercase tracking-[0.2em] opacity-60">
                         {isAI ? 'Cognitive Processor' : 'Authored By Me'} • {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                       </p>
                     </div>
@@ -384,9 +414,9 @@ export const AIChat: React.FC = () => {
                 );
               })}
               {isTyping && (
-                <div className="flex gap-8 items-start animate-pulse">
-                  <div className="w-12 h-12 rounded-2xl bg-primary-600/20 flex items-center justify-center"><Bot className="w-7 h-7 text-primary-600" /></div>
-                  <div className="glass-card px-8 py-6 rounded-[2rem] rounded-tl-none">
+                <div className="flex gap-4 md:gap-8 items-start animate-pulse">
+                  <div className="w-10 h-10 md:w-12 md:h-12 rounded-xl md:rounded-2xl bg-primary-600/20 flex items-center justify-center"><Bot className="w-6 h-6 md:w-7 md:h-7 text-primary-600" /></div>
+                  <div className="glass-card px-6 py-4 md:px-8 md:py-6 rounded-[1.5rem] md:rounded-[2rem] rounded-tl-none">
                     <div className="flex gap-2">
                       <div className="w-2 h-2 rounded-full bg-primary-600 animate-bounce" />
                       <div className="w-2 h-2 rounded-full bg-primary-600 animate-bounce delay-100" />
@@ -399,8 +429,7 @@ export const AIChat: React.FC = () => {
           </div>
         )}
 
-        {/* Input Dock */}
-        <div className="p-10 bg-gradient-to-t from-brand-surface via-brand-surface to-transparent">
+        <div className="p-4 md:p-10 bg-gradient-to-t from-brand-surface via-brand-surface to-transparent border-t lg:border-t-0 border-brand-border lg:bg-none">
           <form onSubmit={handleSendMessage} className="max-w-4xl mx-auto relative">
             {error && (
               <div className="absolute -top-12 left-0 w-full flex justify-center">
@@ -410,20 +439,15 @@ export const AIChat: React.FC = () => {
               </div>
             )}
 
-            {/* Attachment Previews */}
             {attachments.length > 0 && (
               <div className="absolute bottom-full mb-4 left-4 flex gap-3 animate-fade-in">
                 {attachments.map((file, idx) => (
-                  <div key={idx} className="relative w-16 h-16 rounded-xl overflow-hidden border border-primary-500/30 shadow-xl group">
-                    <img 
-                      src={URL.createObjectURL(file)} 
-                      className="w-full h-full object-cover" 
-                      alt="preview" 
-                    />
+                  <div key={idx} className="relative w-14 h-14 md:w-16 md:h-16 rounded-xl overflow-hidden border border-primary-500/30 shadow-xl group">
+                    <img src={URL.createObjectURL(file)} className="w-full h-full object-cover" alt="preview" />
                     <button 
                       type="button"
                       onClick={() => removeAttachment(idx)}
-                      className="absolute top-1 right-1 w-5 h-5 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all scale-90"
+                      className="absolute top-1 right-1 w-4 h-4 md:w-5 md:h-5 bg-red-500 text-white rounded-full flex items-center justify-center opacity-100 scale-90"
                     >
                       <X className="w-3 h-3" />
                     </button>
@@ -432,11 +456,10 @@ export const AIChat: React.FC = () => {
               </div>
             )}
 
-            {/* Resource Dropdown Menu */}
             {showResources && (
               <div 
                 ref={resourceMenuRef}
-                className="absolute bottom-full mb-6 left-0 w-72 glass-card rounded-[2rem] p-3 shadow-3xl animate-slide-up z-50 border border-primary-500/20"
+                className="absolute bottom-full mb-6 left-0 w-full sm:w-72 glass-card rounded-[2rem] p-3 shadow-3xl animate-slide-up z-50 border border-primary-500/20"
               >
                 <div className="p-3 border-b border-brand-border mb-2">
                   <span className="text-[9px] font-black text-brand-muted uppercase tracking-[0.3em]">Operational Resources</span>
@@ -460,22 +483,21 @@ export const AIChat: React.FC = () => {
               </div>
             )}
             
-            <div className="relative flex items-center dock-glass rounded-[2.5rem] p-3 shadow-[0_0_40px_rgba(59,130,246,0.12)] focus-within:shadow-[0_0_50px_rgba(59,130,246,0.2)] transition-all">
-              {/* Resource Trigger */}
+            <div className="relative flex items-center dock-glass rounded-[2rem] md:rounded-[2.5rem] p-2 md:p-3 shadow-xl">
               <button
                 type="button"
                 onClick={() => setShowResources(!showResources)}
-                className={`w-14 h-14 rounded-full flex items-center justify-center transition-all ${
+                className={`w-10 h-10 md:w-14 md:h-14 rounded-full flex items-center justify-center transition-all ${
                   showResources ? 'bg-primary-600 text-white' : 'text-brand-muted hover:text-primary-600'
                 }`}
               >
-                <Sparkles className={`w-6 h-6 ${showResources ? 'animate-pulse' : ''}`} />
+                <Sparkles className={`w-5 h-5 md:w-6 md:h-6 ${showResources ? 'animate-pulse' : ''}`} />
               </button>
 
               <button
                 type="button"
                 onClick={toggleListening}
-                className={`w-12 h-12 rounded-full flex items-center justify-center transition-all ${
+                className={`hidden sm:flex w-12 h-12 rounded-full items-center justify-center transition-all ${
                   isListening ? 'bg-red-500 text-white animate-pulse' : 'text-brand-muted hover:text-primary-600'
                 }`}
               >
@@ -485,34 +507,19 @@ export const AIChat: React.FC = () => {
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
-                className={`w-12 h-12 rounded-full flex items-center justify-center transition-all ${
+                className={`w-10 h-10 md:w-12 md:h-12 rounded-full flex items-center justify-center transition-all ${
                   attachments.length > 0 ? 'text-primary-600' : 'text-brand-muted hover:text-primary-600'
                 }`}
               >
                 <Paperclip className="w-5 h-5" />
               </button>
-              <input 
-                type="file" 
-                ref={fileInputRef} 
-                onChange={handleFileChange} 
-                className="hidden" 
-                accept="image/*" 
-                multiple 
-              />
+              <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" accept="image/*" multiple />
               
-              <div className="flex-1 flex items-center gap-3 overflow-hidden px-4">
-                {/* Active Command Chip */}
+              <div className="flex-1 flex items-center gap-2 md:gap-3 overflow-hidden px-2 md:px-4">
                 {activeCommand && (
-                  <div className="flex-shrink-0 flex items-center gap-2 bg-primary-600/10 border border-primary-500/20 px-3.5 py-1.5 rounded-full group relative transition-all animate-fade-in">
-                    <activeCommand.icon className="w-3.5 h-3.5 text-primary-600" />
-                    <span className="text-[10px] font-black text-primary-600 uppercase tracking-widest leading-none">{activeCommand.prefix}</span>
-                    <button 
-                      type="button"
-                      onClick={() => setActiveCommand(null)}
-                      className="absolute -top-1 -right-1 w-4 h-4 bg-primary-600 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all shadow-lg active:scale-90"
-                    >
-                      <X className="w-2 h-2" />
-                    </button>
+                  <div className="flex-shrink-0 flex items-center gap-1.5 bg-primary-600/10 border border-primary-500/20 px-2.5 py-1 rounded-full animate-fade-in max-w-[80px] md:max-w-none">
+                    <activeCommand.icon className="w-3 h-3 text-primary-600 flex-shrink-0" />
+                    <span className="text-[9px] font-black text-primary-600 uppercase tracking-widest leading-none truncate">{activeCommand.prefix.replace(':', '')}</span>
                   </div>
                 )}
 
@@ -522,16 +529,16 @@ export const AIChat: React.FC = () => {
                   onChange={(e) => setInput(e.target.value)}
                   onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendMessage(); } }}
                   placeholder={isListening ? "Listening..." : "Ask AIXOS..."}
-                  className="flex-1 bg-transparent border-none focus:ring-0 text-brand-text text-lg py-4 resize-none font-medium placeholder:text-brand-muted/40 no-scrollbar outline-none"
+                  className="flex-1 bg-transparent border-none focus:ring-0 text-brand-text text-base md:text-lg py-3 md:py-4 resize-none font-medium placeholder:text-brand-muted/40 no-scrollbar outline-none"
                 />
               </div>
 
               <button
                 type="submit"
                 disabled={(!input.trim() && attachments.length === 0) || isTyping}
-                className="w-14 h-14 bg-primary-600 hover:bg-primary-500 disabled:opacity-50 text-white rounded-full flex items-center justify-center transition-all shadow-xl shadow-primary-900/30 active:scale-90"
+                className="w-10 h-10 md:w-14 md:h-14 bg-primary-600 hover:bg-primary-500 disabled:opacity-50 text-white rounded-full flex items-center justify-center transition-all shadow-xl shadow-primary-900/30 active:scale-90"
               >
-                <Send className="w-6 h-6" />
+                <Send className="w-5 h-5 md:w-6 md:h-6" />
               </button>
             </div>
           </form>

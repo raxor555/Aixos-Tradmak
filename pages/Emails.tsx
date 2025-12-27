@@ -17,7 +17,8 @@ import {
   Paperclip as AttachmentIcon,
   AlertCircle,
   RefreshCw,
-  CheckCircle2
+  CheckCircle2,
+  Globe
 } from 'lucide-react';
 import { supabase } from '../services/supabase';
 import { useStore } from '../store/useStore';
@@ -57,39 +58,6 @@ export const EmailsPage: React.FC = () => {
     setConfig(data);
   };
 
-  const loadSmtpBridge = (): Promise<any> => {
-    return new Promise((resolve, reject) => {
-      if ((window as any).Email) {
-        resolve((window as any).Email);
-        return;
-      }
-
-      const existingScript = document.querySelector('script[src*="smtpjs.com"]');
-      if (existingScript) {
-        let attempts = 0;
-        const interval = setInterval(() => {
-          if ((window as any).Email) {
-            clearInterval(interval);
-            resolve((window as any).Email);
-          }
-          if (attempts > 50) {
-            clearInterval(interval);
-            reject(new Error("SMTP.js timed out while loading."));
-          }
-          attempts++;
-        }, 100);
-        return;
-      }
-
-      const script = document.createElement('script');
-      script.src = "https://smtpjs.com/v3/smtp.js";
-      script.async = true;
-      script.onload = () => resolve((window as any).Email);
-      script.onerror = () => reject(new Error("Failed to load SMTP.js. Check your connection or browser settings."));
-      document.head.appendChild(script);
-    });
-  };
-
   const fetchEmails = async () => {
     setLoading(true);
     const direction = activeTab === 'Inbox' ? 'inbound' : 'outbound';
@@ -106,48 +74,54 @@ export const EmailsPage: React.FC = () => {
 
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!config?.enabled || !config.smtp_host) {
-      alert("SMTP Relay is not configured in Settings.");
+    if (!config?.enabled) {
+      alert("Relay infrastructure is dormant. Configure in Settings.");
       return;
     }
     
     setSending(true);
 
     try {
-      const SmtpBridge = await loadSmtpBridge();
-      
-      if (!SmtpBridge) {
-        throw new Error("SMTP Bridge initialized but the 'Email' object is missing.");
+      if (config.webhook_url) {
+        // Option A: Webhook Relay (Preferred for Enterprise)
+        const res = await fetch(config.webhook_url, {
+          method: 'POST',
+          headers: { 
+            'Content-Type': 'application/json',
+            'Authorization': config.webhook_auth_token ? `Bearer ${config.webhook_auth_token}` : ''
+          },
+          body: JSON.stringify({ to, from: config.from_email, subject, message: body })
+        });
+        if (!res.ok) throw new Error("Webhook relay failed to process transmission.");
+      } else if (config.emailjs_public_key) {
+        // Option B: EmailJS SDK
+        const emailjs = (window as any).emailjs;
+        if (!emailjs) throw new Error("EmailJS SDK not available.");
+        
+        emailjs.init(config.emailjs_public_key);
+        await emailjs.send(config.emailjs_service_id, config.emailjs_template_id, {
+          to_email: to,
+          from_name: config.from_name,
+          subject,
+          message: body
+        });
+      } else {
+        throw new Error("No communication protocol configured.");
       }
 
-      // Browser-Direct SMTP via SMTP.js Bridge
-      const result = await SmtpBridge.send({
-        Host: config.smtp_host,
-        Username: config.smtp_user,
-        Password: config.smtp_pass,
-        To: to,
-        From: config.from_email,
-        Subject: subject,
-        Body: body
+      // Log outbound message
+      await supabase.from('emails').insert({
+        direction: 'outbound',
+        from_address: config.from_email,
+        to_address: [to],
+        subject,
+        body_text: body,
+        is_read: true
       });
 
-      if (result === "OK") {
-        // Log the outbound email to Supabase for history
-        await supabase.from('emails').insert({
-          direction: 'outbound',
-          from_address: config.from_email,
-          to_address: [to],
-          subject,
-          body_text: body,
-          is_read: true
-        });
-
-        setShowCompose(false);
-        resetCompose();
-        fetchEmails();
-      } else {
-        throw new Error(result);
-      }
+      setShowCompose(false);
+      resetCompose();
+      fetchEmails();
     } catch (err: any) {
       alert('Relay Dispatch Error: ' + err.message);
     } finally {
@@ -165,7 +139,7 @@ export const EmailsPage: React.FC = () => {
         <div className="bg-primary-600/10 border-b border-primary-500/20 p-4 flex items-center justify-between px-10 backdrop-blur-md">
           <div className="flex items-center gap-4">
             <AlertCircle className="w-5 h-5 text-primary-500" />
-            <p className="text-sm font-bold text-brand-text">Communication engine is dormant. Configure SMTP in Settings.</p>
+            <p className="text-sm font-bold text-brand-text">Communication engine is dormant. Configure infrastructure in Settings.</p>
           </div>
           <button onClick={() => window.location.hash = '/settings'} className="text-[10px] font-black uppercase bg-primary-600 text-white px-5 py-2 rounded-xl shadow-lg">Configure Node</button>
         </div>
@@ -174,11 +148,11 @@ export const EmailsPage: React.FC = () => {
       <header className="p-10 border-b border-brand-border flex justify-between items-end glass-card z-20">
         <div>
           <div className="flex items-center gap-3 mb-3">
-            <Mail className="w-5 h-5 text-primary-500" />
-            <span className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-muted">Local Relay</span>
+            <Globe className="w-5 h-5 text-primary-500" />
+            <span className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-muted">Strategic Post</span>
           </div>
-          <h1 className="text-4xl font-display font-bold text-brand-text mb-2 tracking-tight">Intelligence Post</h1>
-          <p className="text-brand-muted font-bold text-sm tracking-wide">Enterprise dispatch via direct browser-to-server bridge.</p>
+          <h1 className="text-4xl font-display font-bold text-brand-text mb-2 tracking-tight">Intelligence Dispatch</h1>
+          <p className="text-brand-muted font-bold text-sm tracking-wide">Secure multi-protocol post via enterprise relay nodes.</p>
         </div>
         
         <div className="flex gap-4">
@@ -231,10 +205,10 @@ export const EmailsPage: React.FC = () => {
           <div className="mt-auto p-8 border-t border-brand-border">
             <div className="p-5 bg-emerald-500/5 rounded-3xl border border-emerald-500/10">
               <p className="text-[10px] font-black uppercase text-emerald-600 mb-3 flex items-center gap-2">
-                <CheckCircle2 className="w-3.5 h-3.5" /> Direct Bridge
+                <CheckCircle2 className="w-3.5 h-3.5" /> Post Relay
               </p>
               <p className="text-[9px] font-bold text-brand-muted leading-relaxed">
-                Outbound SMTP is active directly from your browser node.
+                Outbound logic is active via {config?.webhook_url ? 'Webhook Node' : 'EmailJS SDK'}.
               </p>
             </div>
           </div>
@@ -245,15 +219,15 @@ export const EmailsPage: React.FC = () => {
           {loading ? (
             <div className="h-full flex flex-col items-center justify-center gap-4">
               <Loader2 className="w-10 h-10 animate-spin text-primary-500" />
-              <p className="text-[10px] font-black uppercase tracking-widest text-brand-muted">Polling Signal...</p>
+              <p className="text-[10px] font-black uppercase tracking-widest text-brand-muted">Polling Transmissions...</p>
             </div>
           ) : emails.length === 0 ? (
             <div className="h-full flex flex-col items-center justify-center text-center p-12">
               <div className="w-24 h-24 bg-zinc-500/5 rounded-[2.5rem] flex items-center justify-center mb-8 border border-brand-border">
                 <Inbox className="w-10 h-10 text-brand-muted opacity-30" />
               </div>
-              <h3 className="text-2xl font-display font-bold text-brand-text mb-2">Empty Stream</h3>
-              <p className="text-brand-muted max-w-xs italic text-sm">No transmissions indexed for this neural sector.</p>
+              <h3 className="text-2xl font-display font-bold text-brand-text mb-2">Null Stream</h3>
+              <p className="text-brand-muted max-w-xs italic text-sm">No indexed transmissions in this sector.</p>
             </div>
           ) : (
             <div className="divide-y divide-brand-border">
@@ -275,7 +249,7 @@ export const EmailsPage: React.FC = () => {
                       <span className={`text-sm truncate ${!email.is_read ? 'font-black text-brand-text' : 'font-medium text-brand-muted'}`}>
                         {email.subject}
                       </span>
-                      <span className="text-xs text-brand-muted/40 font-medium truncate">— {email.body_text || 'No preview available'}</span>
+                      <span className="text-xs text-brand-muted/40 font-medium truncate">— {email.body_text || 'Secure transmission...'}</span>
                     </div>
                   </div>
                   <div className="flex-shrink-0 flex items-center gap-6">
@@ -301,7 +275,7 @@ export const EmailsPage: React.FC = () => {
             <header className="p-6 bg-primary-600 text-white flex justify-between items-center">
               <div className="flex items-center gap-3">
                 <Send className="w-5 h-5" />
-                <h3 className="text-sm font-black uppercase tracking-widest leading-none">Intelligence Dispatch</h3>
+                <h3 className="text-sm font-black uppercase tracking-widest leading-none">Transmission Dispatch</h3>
               </div>
               <div className="flex items-center gap-4">
                 <button onClick={() => setShowCompose(false)} className="p-1 hover:bg-white/20 rounded-lg transition-all"><X className="w-4 h-4" /></button>
@@ -310,7 +284,7 @@ export const EmailsPage: React.FC = () => {
 
             <form onSubmit={handleSend} className="flex-1 p-8 space-y-4">
               <div className="flex items-center gap-4 border-b border-brand-border py-3 group">
-                <span className="text-[10px] font-black uppercase text-brand-muted tracking-[0.2em] w-12">To</span>
+                <span className="text-[10px] font-black uppercase text-brand-muted tracking-[0.2em] w-12">Target</span>
                 <input 
                   required
                   value={to}
@@ -326,7 +300,7 @@ export const EmailsPage: React.FC = () => {
                   value={subject}
                   onChange={e => setSubject(e.target.value)}
                   className="flex-1 bg-transparent border-none focus:ring-0 text-sm font-bold text-brand-text placeholder:text-brand-muted/20"
-                  placeholder="Security audit briefing..."
+                  placeholder="Briefing context..."
                 />
               </div>
               
@@ -335,7 +309,7 @@ export const EmailsPage: React.FC = () => {
                 value={body}
                 onChange={e => setBody(e.target.value)}
                 className="w-full bg-zinc-500/5 border border-brand-border rounded-[1.5rem] p-6 text-sm font-medium text-brand-text focus:ring-2 focus:ring-primary-600/20 outline-none resize-none no-scrollbar"
-                placeholder="Author your message here..."
+                placeholder="Author transmission content..."
               />
 
               <div className="flex justify-end items-center pt-4">
@@ -344,7 +318,7 @@ export const EmailsPage: React.FC = () => {
                   className="bg-primary-600 hover:bg-primary-500 text-white px-10 py-4 rounded-2xl transition-all shadow-xl shadow-primary-900/30 font-black uppercase text-[11px] tracking-widest flex items-center gap-3 active:scale-95 disabled:opacity-50"
                 >
                   {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <SendHorizonal className="w-4 h-4" />}
-                  Dispatch session
+                  Finalize Dispatch
                 </button>
               </div>
             </form>

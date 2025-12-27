@@ -12,10 +12,12 @@ import { Login } from './pages/Login.tsx';
 import { AIChat } from './pages/AIChat.tsx';
 import { EmailsPage } from './pages/Emails.tsx';
 import { SettingsPage } from './pages/Settings.tsx';
+import { ResourcesPage } from './pages/Resources.tsx';
+import { DeepResearchPage } from './pages/DeepResearch.tsx';
 import { ChatbotMonitor } from './pages/ChatbotMonitor.tsx';
 import { supabase } from './services/supabase.ts';
 import { useStore } from './store/useStore.ts';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Menu, Sparkles } from 'lucide-react';
 
 const AnalyticsPage = () => <div className="p-8"><h1 className="text-2xl font-bold">Advanced Analytics</h1><p className="text-zinc-500 mt-2">Deep insights into your support operations.</p></div>;
 
@@ -43,18 +45,18 @@ const AuthGuard = ({ children, requireAdmin = false }: { children: React.ReactNo
 };
 
 const App: React.FC = () => {
-  const { setUser, setAgent, theme } = useStore();
+  const { setUser, setAgent, theme, setSidebarOpen } = useStore();
 
   useEffect(() => {
-    // Check active sessions
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    // Fixed: Cast to any to resolve missing getSession method on SupabaseAuthClient type reported by the compiler
+    (supabase.auth as any).getSession().then(({ data: { session } }: any) => {
       setUser(session?.user ?? null);
       if (session?.user) fetchAgentProfile(session.user.id);
       useStore.setState({ loading: false });
     });
 
-    // Listen for changes on auth state
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    // Fixed: Cast to any to resolve missing onAuthStateChange method on SupabaseAuthClient type reported by the compiler
+    const { data: { subscription } } = (supabase.auth as any).onAuthStateChange((_event: any, session: any) => {
       setUser(session?.user ?? null);
       if (session?.user) fetchAgentProfile(session.user.id);
       else setAgent(null);
@@ -83,22 +85,44 @@ const App: React.FC = () => {
             path="/*" 
             element={
               <AuthGuard>
-                <div className="flex h-screen bg-brand-surface font-sans text-zinc-900 dark:text-zinc-200 transition-colors duration-500">
+                <div className="flex h-screen bg-brand-surface font-sans text-brand-text transition-colors duration-500 overflow-hidden">
                   <Sidebar />
                   <main className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
-                    <Routes>
-                      <Route path="/" element={<AIChat />} />
-                      <Route path="/dashboard" element={<Dashboard />} />
-                      <Route path="/conversations" element={<Conversations />} />
-                      <Route path="/emails" element={<EmailsPage />} />
-                      <Route path="/channels" element={<Channels />} />
-                      <Route path="/chatbot-logs" element={<AuthGuard requireAdmin><ChatbotMonitor /></AuthGuard>} />
-                      <Route path="/inquiries" element={<AuthGuard requireAdmin><Inquiries /></AuthGuard>} />
-                      <Route path="/contacts" element={<AuthGuard requireAdmin><ContactsPage /></AuthGuard>} />
-                      <Route path="/analytics" element={<AuthGuard requireAdmin><AnalyticsPage /></AuthGuard>} />
-                      <Route path="/settings" element={<SettingsPage />} />
-                      <Route path="*" element={<Navigate to="/" replace />} />
-                    </Routes>
+                    <header className="flex items-center justify-between px-6 py-4 glass-card border-b border-brand-border sticky top-0 z-40">
+                      <div className="flex items-center gap-4">
+                        <button 
+                          onClick={() => setSidebarOpen(true)}
+                          className="p-2 -ml-2 text-brand-muted hover:text-primary-600 transition-colors"
+                        >
+                          <Menu className="w-6 h-6" />
+                        </button>
+                        <div className="flex items-center gap-2">
+                          <Sparkles className="w-5 h-5 text-primary-600" />
+                          <span className="font-display font-bold text-lg tracking-tight">AIXOS</span>
+                        </div>
+                      </div>
+                      <div className="hidden sm:flex items-center gap-3">
+                         <span className="text-[10px] font-black uppercase tracking-[0.2em] text-brand-muted">Tradmak Intelligence Layer</span>
+                      </div>
+                    </header>
+
+                    <div className="flex-1 overflow-hidden relative">
+                      <Routes>
+                        <Route path="/" element={<AIChat />} />
+                        <Route path="/research" element={<DeepResearchPage />} />
+                        <Route path="/dashboard" element={<Dashboard />} />
+                        <Route path="/conversations" element={<Conversations />} />
+                        <Route path="/resources" element={<ResourcesPage />} />
+                        <Route path="/emails" element={<EmailsPage />} />
+                        <Route path="/channels" element={<Channels />} />
+                        <Route path="/chatbot-logs" element={<AuthGuard requireAdmin><ChatbotMonitor /></AuthGuard>} />
+                        <Route path="/inquiries" element={<AuthGuard requireAdmin><Inquiries /></AuthGuard>} />
+                        <Route path="/contacts" element={<AuthGuard requireAdmin><ContactsPage /></AuthGuard>} />
+                        <Route path="/analytics" element={<AuthGuard requireAdmin><AnalyticsPage /></AuthGuard>} />
+                        <Route path="/settings" element={<SettingsPage />} />
+                        <Route path="*" element={<Navigate to="/" replace />} />
+                      </Routes>
+                    </div>
                   </main>
                 </div>
               </AuthGuard>
