@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { 
   Search, 
@@ -11,7 +12,10 @@ import {
   Database,
   Terminal,
   BrainCircuit,
-  Sparkles
+  Sparkles,
+  RefreshCw,
+  Layers,
+  Activity
 } from 'lucide-react';
 import { supabase } from '../services/supabase';
 import { useStore } from '../store/useStore';
@@ -39,19 +43,22 @@ export const DeepResearchPage: React.FC = () => {
 
   const thinkingMessages = [
     "Establishing Neural Handshake...",
-    "Crawling Source Topography...",
-    "Extracting Semantic Intelligence...",
-    "Synthesizing Strategic Report...",
-    "Finalizing Neural Log..."
+    "Scanning Target Node Infrastructure...",
+    "Bypassing Perimeter Protocols...",
+    "Crawling Deep Web Topography...",
+    "Extracting Latent Semantic Data...",
+    "Synthesizing Strategic Intelligence...",
+    "Compiling Neural Briefing..."
   ];
 
   useEffect(() => {
+    let interval: any;
     if (researching) {
-      const interval = setInterval(() => {
+      interval = setInterval(() => {
         setThinkingStep(prev => (prev + 1) % thinkingMessages.length);
-      }, 3000);
-      return () => clearInterval(interval);
+      }, 2500);
     }
+    return () => clearInterval(interval);
   }, [researching]);
 
   const fetchLogs = async () => {
@@ -80,23 +87,32 @@ export const DeepResearchPage: React.FC = () => {
     setThinkingStep(0);
 
     try {
+      // Fetch logic with standard headers to minimize CORS issues
       const res = await fetch(webhookUrl, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json'
+        },
         body: JSON.stringify({
           url: url.trim(),
-          agent_name: agent.name,
+          agent: agent.name,
           agent_id: agent.id,
           timestamp: new Date().toISOString()
         })
       });
 
-      if (!res.ok) throw new Error("Neural Node disconnected. Check relay status.");
+      if (!res.ok) {
+        throw new Error(`Connection unstable: Target node returned ${res.status}.`);
+      }
 
       const data = await res.json();
-      const output = typeof data === 'string' ? data : data.output || data.research || JSON.stringify(data);
+      
+      // Handle diverse response structures from n8n
+      const output = typeof data === 'string' 
+        ? data 
+        : data.output || data.research || data.report || JSON.stringify(data, null, 2);
 
-      // Save to log
+      // Record this mission in the archive
       const { data: savedLog, error: logError } = await supabase
         .from('research_logs')
         .insert({
@@ -115,203 +131,250 @@ export const DeepResearchPage: React.FC = () => {
       fetchLogs();
       if (savedLog) setActiveLog(savedLog);
     } catch (err: any) {
-      setError(err.message);
+      console.error("Deep Research Exception:", err);
+      setError(err.message || "Neural signal lost during synthesis.");
     } finally {
       setResearching(false);
     }
   };
 
   return (
-    <div className="flex-1 overflow-y-auto p-6 md:p-10 space-y-10 animate-fade-in bg-brand-surface custom-scrollbar">
-      <header className="flex flex-col md:flex-row md:items-end md:justify-between gap-6">
+    <div className="flex-1 overflow-y-auto p-6 md:p-12 space-y-12 animate-fade-in bg-brand-surface custom-scrollbar">
+      <header className="flex flex-col md:flex-row md:items-end md:justify-between gap-8">
         <div>
-          <div className="flex items-center gap-3 mb-3">
-            <Globe className="w-5 h-5 text-primary-500" />
-            <span className="text-[10px] font-extrabold uppercase tracking-[0.3em] text-brand-muted">Cognitive Web Ingestion</span>
+          <div className="flex items-center gap-3 mb-4">
+            <div className="p-2 bg-primary-600/10 rounded-lg border border-primary-500/20">
+              <Activity className="w-5 h-5 text-primary-500 animate-pulse" />
+            </div>
+            <span className="text-[10px] font-black uppercase tracking-[0.4em] text-brand-muted">Neural Intelligence Layer</span>
           </div>
-          <h1 className="text-4xl md:text-5xl font-display font-bold text-brand-text mb-2 tracking-tight">Neural Deep Research</h1>
-          <p className="text-brand-muted font-bold text-sm max-w-2xl leading-relaxed">
-            Deploy cognitive agents to scrape, analyze, and synthesize intelligence from any web domain.
+          <h1 className="text-5xl md:text-6xl font-display font-bold text-brand-text mb-3 tracking-tight">Quantum Research</h1>
+          <p className="text-brand-muted font-bold text-lg max-w-2xl leading-relaxed opacity-70">
+            Deploy cognitive agents to scrape, index, and synthesize high-fidelity intelligence from the global web topography.
           </p>
         </div>
         <button 
           onClick={() => setShowModal(true)}
-          className="px-8 py-4 bg-primary-600 text-white rounded-2xl text-[11px] font-black uppercase tracking-widest flex items-center gap-3 hover:bg-primary-500 shadow-xl shadow-primary-900/30 transition-all active:scale-95"
+          className="group relative px-10 py-5 bg-primary-600 text-white rounded-3xl text-[12px] font-black uppercase tracking-[0.2em] flex items-center gap-4 hover:bg-primary-500 shadow-3xl shadow-primary-900/40 transition-all active:scale-95 overflow-hidden"
         >
-          <Zap className="w-4 h-4" />
-          Initiate Research
+          <div className="absolute inset-0 bg-gradient-to-r from-white/0 via-white/10 to-white/0 -translate-x-full group-hover:translate-x-full transition-transform duration-1000" />
+          <Sparkles className="w-5 h-5 animate-pulse" />
+          Initiate New Mission
         </button>
       </header>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-10">
-        {/* Research Archive */}
-        <div className="lg:col-span-1 space-y-6">
-          <div className="flex items-center gap-3 px-4">
-            <Terminal className="w-4 h-4 text-brand-muted" />
-            <h3 className="text-[10px] font-black uppercase tracking-widest text-brand-muted">Neural Log Archive</h3>
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-12">
+        {/* Research Archive (Sidebar style) */}
+        <div className="lg:col-span-1 space-y-8">
+          <div className="flex items-center justify-between px-4">
+            <div className="flex items-center gap-3">
+              <Terminal className="w-4 h-4 text-primary-500" />
+              <h3 className="text-[10px] font-black uppercase tracking-widest text-brand-muted">Historical Archive</h3>
+            </div>
+            <button onClick={fetchLogs} className="text-brand-muted hover:text-primary-500 transition-colors">
+              <RefreshCw className="w-4 h-4" />
+            </button>
           </div>
-          <div className="space-y-3">
+          
+          <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-2 custom-scrollbar">
             {loading ? (
-              <div className="p-12 flex justify-center"><Loader2 className="w-6 h-6 animate-spin text-primary-500" /></div>
+              <div className="p-20 flex justify-center"><Loader2 className="w-8 h-8 animate-spin text-primary-500 opacity-50" /></div>
             ) : logs.length === 0 ? (
-              <div className="glass-card rounded-[2rem] p-10 text-center">
-                <p className="text-[10px] font-bold uppercase tracking-widest text-brand-muted opacity-40">Archive Empty</p>
+              <div className="glass-card rounded-[2.5rem] p-12 text-center border-dashed border-2 opacity-40">
+                <p className="text-[10px] font-black uppercase tracking-widest text-brand-muted">Archive Empty</p>
               </div>
             ) : logs.map(log => (
               <button 
                 key={log.id}
                 onClick={() => setActiveLog(log)}
-                className={`w-full text-left glass-card p-6 rounded-[1.8rem] transition-all border group ${
-                  activeLog?.id === log.id ? 'border-primary-500 bg-primary-600/5' : 'hover:border-primary-500/30'
+                className={`w-full text-left glass-card p-6 rounded-[2rem] transition-all border group relative overflow-hidden ${
+                  activeLog?.id === log.id ? 'border-primary-500 ring-2 ring-primary-500/20 bg-primary-600/5' : 'hover:border-primary-500/40'
                 }`}
               >
-                <div className="flex justify-between items-start mb-2">
-                  <span className="text-[9px] font-black text-primary-500 uppercase tracking-widest">Completed</span>
-                  <span className="text-[9px] font-bold text-brand-muted">{new Date(log.created_at).toLocaleDateString()}</span>
+                <div className="flex justify-between items-start mb-3">
+                  <span className="text-[9px] font-black text-primary-500 uppercase tracking-widest bg-primary-600/10 px-2 py-0.5 rounded-md">Verified</span>
+                  <span className="text-[9px] font-bold text-brand-muted opacity-50">{new Date(log.created_at).toLocaleDateString()}</span>
                 </div>
-                <p className="text-sm font-bold text-brand-text truncate group-hover:text-primary-600 transition-colors mb-1">{log.target_url}</p>
-                <p className="text-[10px] text-brand-muted truncate opacity-60">ID: {log.id.split('-')[0]}...</p>
+                <p className="text-sm font-bold text-brand-text truncate group-hover:text-primary-600 transition-colors mb-2">{log.target_url}</p>
+                <div className="flex items-center gap-2 text-[10px] text-brand-muted font-medium italic truncate opacity-50">
+                  <Layers className="w-3 h-3" /> Report Index: {log.id.split('-')[0]}
+                </div>
               </button>
             ))}
           </div>
         </div>
 
-        {/* Intelligence Display */}
-        <div className="lg:col-span-2">
+        {/* Tactical Intel Display */}
+        <div className="lg:col-span-3">
           {activeLog ? (
-            <div className="glass-card rounded-[2.5rem] p-8 md:p-12 animate-slide-up h-full flex flex-col min-h-[600px]">
-              <div className="flex justify-between items-start mb-10 border-b border-brand-border pb-8">
-                <div>
-                  <h2 className="text-3xl font-display font-bold text-brand-text mb-2">Neural Report</h2>
-                  <div className="flex items-center gap-3 text-brand-muted">
-                    <Globe className="w-4 h-4 text-primary-600" />
-                    <span className="text-[10px] font-bold uppercase tracking-widest truncate max-w-[300px]">{activeLog.target_url}</span>
+            <div className="glass-card rounded-[3rem] p-10 md:p-16 animate-slide-up h-full flex flex-col min-h-[700px] border-primary-500/20 relative overflow-hidden">
+              <div className="absolute top-0 right-0 w-64 h-64 bg-primary-600/5 rounded-full blur-[100px] -mr-32 -mt-32" />
+              
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-12 border-b border-brand-border pb-10">
+                <div className="space-y-2">
+                  <div className="flex items-center gap-3">
+                    <Globe className="w-6 h-6 text-primary-600" />
+                    <h2 className="text-3xl font-display font-bold text-brand-text">Mission Intel Briefing</h2>
                   </div>
+                  <p className="text-xs font-bold text-brand-muted uppercase tracking-widest flex items-center gap-2">
+                    <span className="text-primary-500 italic">Source:</span> {activeLog.target_url}
+                  </p>
                 </div>
-                <button 
-                  className="p-3 bg-zinc-500/5 rounded-2xl hover:bg-zinc-500/10 transition-all text-brand-muted"
-                  onClick={() => setActiveLog(null)}
-                >
-                  <X className="w-6 h-6" />
-                </button>
+                <div className="flex gap-4">
+                   <button 
+                    className="p-4 bg-zinc-500/5 rounded-2xl hover:bg-rose-500/10 hover:text-rose-500 transition-all text-brand-muted border border-brand-border"
+                    onClick={() => setActiveLog(null)}
+                    title="Close Briefing"
+                  >
+                    <X className="w-6 h-6" />
+                  </button>
+                </div>
               </div>
               
-              <div className="flex-1 overflow-y-auto custom-scrollbar">
-                <div className="prose prose-invert max-w-none text-brand-text leading-relaxed font-medium">
+              <div className="flex-1 overflow-y-auto custom-scrollbar pr-6">
+                <div className="prose prose-invert max-w-none text-brand-text text-lg leading-[2] font-medium opacity-90">
                   {activeLog.research_output.split('\n').map((para, i) => (
-                    <p key={i} className="mb-6">{para}</p>
+                    para.trim() ? <p key={i} className="mb-8 p-4 rounded-2xl hover:bg-zinc-500/5 transition-colors">{para}</p> : null
                   ))}
                 </div>
               </div>
 
-              <div className="mt-10 pt-8 border-t border-brand-border flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 bg-emerald-500/10 rounded-xl flex items-center justify-center border border-emerald-500/20 text-emerald-500">
-                    <CheckCircle2 className="w-6 h-6" />
+              <div className="mt-12 pt-10 border-t border-brand-border flex flex-col md:flex-row md:items-center justify-between gap-6">
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 bg-emerald-500/10 rounded-2xl flex items-center justify-center border border-emerald-500/20 text-emerald-500 shadow-inner">
+                    <CheckCircle2 className="w-7 h-7" />
                   </div>
-                  <span className="text-[10px] font-black uppercase tracking-widest text-emerald-600">Sync Verified</span>
+                  <div>
+                    <span className="block text-[10px] font-black uppercase tracking-[0.2em] text-emerald-600">Integrity Verified</span>
+                    <span className="text-[10px] font-bold text-brand-muted">Quantum Timestamp: {new Date(activeLog.created_at).toLocaleTimeString()}</span>
+                  </div>
                 </div>
-                <button className="text-[10px] font-black uppercase tracking-widest text-primary-600 hover:text-primary-500 transition-colors">Export Intelligence</button>
+                <div className="flex gap-4">
+                  <button className="px-6 py-3 border border-brand-border rounded-xl text-[10px] font-black uppercase tracking-widest text-brand-muted hover:text-primary-500 hover:border-primary-500/40 transition-all">Download CSV</button>
+                  <button className="px-6 py-3 bg-primary-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-primary-500 transition-all shadow-lg shadow-primary-900/30">Generate PDF</button>
+                </div>
               </div>
             </div>
           ) : (
-            <div className="glass-card rounded-[2.5rem] h-full min-h-[600px] flex flex-col items-center justify-center p-12 text-center border-dashed border-2">
-              <div className="w-24 h-24 bg-zinc-500/5 rounded-[2.8rem] flex items-center justify-center mb-10 border border-brand-border animate-pulse-soft">
-                <BrainCircuit className="w-12 h-12 text-brand-muted opacity-30" />
+            <div className="glass-card rounded-[3.5rem] h-full min-h-[700px] flex flex-col items-center justify-center p-16 text-center border-dashed border-2 group">
+              <div className="relative mb-12">
+                <div className="w-32 h-32 bg-zinc-500/5 rounded-[3rem] flex items-center justify-center border border-brand-border group-hover:border-primary-500/40 transition-all duration-700">
+                  <BrainCircuit className="w-16 h-16 text-brand-muted opacity-30 group-hover:opacity-60 transition-opacity" />
+                </div>
+                <div className="absolute inset-0 bg-primary-600/5 rounded-full blur-3xl opacity-0 group-hover:opacity-100 transition-opacity duration-1000" />
               </div>
-              <h3 className="text-3xl font-display font-bold text-brand-text mb-4">Awaiting Signal</h3>
-              <p className="text-brand-muted max-w-sm italic leading-relaxed text-lg opacity-60">
-                Select a log from the archive or initiate a new deep research mission to ingest data.
+              <h3 className="text-4xl font-display font-bold text-brand-text mb-6 tracking-tight">System Status: Awaiting Signal</h3>
+              <p className="text-brand-muted max-w-md italic leading-relaxed text-xl opacity-60 font-medium">
+                "Select a historical node from the archive or initiate a fresh ingestion sequence to synthesize web intelligence."
               </p>
+              <div className="mt-12 flex gap-4">
+                 {[...Array(3)].map((_, i) => (
+                   <div key={i} className="w-2 h-2 rounded-full bg-zinc-500/20 animate-bounce" style={{ animationDelay: `${i * 200}ms` }} />
+                 ))}
+              </div>
             </div>
           )}
         </div>
       </div>
 
-      {/* Initiation Modal */}
+      {/* Deep Research Initiation Modal */}
       {showModal && (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center p-6 bg-black/60 backdrop-blur-xl animate-fade-in">
-          <div className="w-full max-w-xl glass-card rounded-[3rem] p-10 md:p-14 shadow-3xl animate-slide-up relative overflow-hidden">
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-6 bg-black/70 backdrop-blur-2xl animate-fade-in">
+          <div className="w-full max-w-2xl glass-card rounded-[3.5rem] p-12 md:p-16 shadow-3xl animate-slide-up relative overflow-hidden border-primary-500/20">
+            
+            {/* Thinking / Processing Layer */}
             {researching && (
-              <div className="absolute inset-0 bg-brand-surface z-50 flex flex-col items-center justify-center p-12 text-center">
-                <div className="relative mb-12">
-                   {/* Thinking Animation */}
-                   <div className="w-32 h-32 bg-primary-600/10 rounded-full flex items-center justify-center relative">
-                      <div className="absolute inset-0 rounded-full border-4 border-primary-600 border-t-transparent animate-spin" />
-                      <Sparkles className="w-12 h-12 text-primary-600 animate-pulse" />
+              <div className="absolute inset-0 bg-brand-surface z-50 flex flex-col items-center justify-center p-12 text-center animate-fade-in">
+                <div className="relative mb-16 scale-110">
+                   {/* Advanced Neural Thinking Loader */}
+                   <div className="w-40 h-40 bg-primary-600/5 rounded-full flex items-center justify-center relative">
+                      <div className="absolute inset-0 rounded-full border-[6px] border-primary-600/10" />
+                      <div className="absolute inset-0 rounded-full border-[6px] border-primary-600 border-t-transparent animate-spin duration-1000" />
+                      <div className="absolute inset-4 rounded-full border-[4px] border-primary-400/20 border-b-transparent animate-spin-reverse duration-[2000ms]" />
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <Sparkles className="w-14 h-14 text-primary-600 animate-pulse" />
+                      </div>
                    </div>
-                   <div className="absolute -inset-8 bg-primary-600/5 rounded-full blur-2xl animate-pulse" />
+                   <div className="absolute -inset-12 bg-primary-600/10 rounded-full blur-3xl animate-pulse" />
                 </div>
                 
-                <h3 className="text-3xl font-display font-bold text-brand-text mb-4">Thinking...</h3>
-                <div className="flex flex-col items-center gap-2">
-                   <p className="text-[11px] font-black uppercase tracking-[0.3em] text-primary-600 animate-pulse">
+                <h3 className="text-4xl font-display font-bold text-brand-text mb-6">Neural Synthesis in Progress</h3>
+                <div className="flex flex-col items-center gap-3">
+                   <p className="text-[12px] font-black uppercase tracking-[0.4em] text-primary-500 animate-pulse min-h-[20px]">
                      {thinkingMessages[thinkingStep]}
                    </p>
-                   <div className="flex gap-1.5 mt-4">
+                   <div className="flex gap-2.5 mt-6">
                      {thinkingMessages.map((_, i) => (
-                       <div key={i} className={`w-1.5 h-1.5 rounded-full transition-all duration-500 ${i === thinkingStep ? 'bg-primary-600 scale-150' : 'bg-zinc-500/30'}`} />
+                       <div 
+                        key={i} 
+                        className={`w-2 h-2 rounded-full transition-all duration-700 ${
+                          i === thinkingStep ? 'bg-primary-600 scale-[1.8] shadow-[0_0_12px_rgba(59,130,246,0.8)]' : 'bg-zinc-500/20'
+                        }`} 
+                       />
                      ))}
                    </div>
                 </div>
-                <p className="text-brand-muted mt-12 text-sm italic font-medium opacity-60">
-                  Synthesizing massive datasets into actionable intelligence. This process may take up to 60 seconds.
+                <p className="text-brand-muted mt-16 text-base italic font-medium opacity-60 leading-relaxed max-w-xs">
+                  Tradmak Intelligence is processing cross-node datasets. High-fidelity synthesis active.
                 </p>
               </div>
             )}
 
             <button 
               onClick={() => { setShowModal(false); setError(null); setUrl(''); }}
-              className="absolute top-8 right-8 text-brand-muted hover:text-brand-text transition-colors"
+              className="absolute top-10 right-10 text-brand-muted hover:text-brand-text transition-all hover:rotate-90 duration-300"
             >
-              <X className="w-8 h-8" />
+              <X className="w-10 h-10" />
             </button>
 
-            <div className="text-center mb-12">
-              <div className="w-20 h-20 bg-primary-600/10 rounded-[2rem] flex items-center justify-center mx-auto mb-6 border border-primary-500/20 shadow-inner">
-                <Globe className="w-10 h-10 text-primary-600" />
+            <div className="text-center mb-16">
+              <div className="w-24 h-24 bg-primary-600/10 rounded-[2.5rem] flex items-center justify-center mx-auto mb-8 border border-primary-500/20 shadow-2xl relative">
+                <Globe className="w-12 h-12 text-primary-600" />
+                <div className="absolute inset-0 rounded-[2.5rem] border border-white/10" />
               </div>
-              <h2 className="text-4xl font-display font-bold text-brand-text mb-3">Neural Link Ingestion</h2>
-              <p className="text-[10px] text-brand-muted font-extrabold uppercase tracking-[0.3em]">Operational Phase: Targeting</p>
+              <h2 className="text-5xl font-display font-bold text-brand-text mb-4 tracking-tight">Neural Ingestion</h2>
+              <p className="text-[11px] text-brand-muted font-extrabold uppercase tracking-[0.4em] opacity-60">Phase I: Target Identification</p>
             </div>
 
-            <form onSubmit={initiateResearch} className="space-y-8">
-              <div>
-                <label className="block text-[10px] font-black text-brand-muted uppercase tracking-[0.25em] mb-4 ml-2">Target Node URL</label>
-                <div className="relative group">
-                  <Database className="absolute left-6 top-1/2 -translate-y-1/2 w-6 h-6 text-brand-muted group-focus-within:text-primary-600 transition-colors" />
+            <form onSubmit={initiateResearch} className="space-y-10">
+              <div className="relative group">
+                <label className="block text-[11px] font-black text-brand-muted uppercase tracking-[0.3em] mb-5 ml-4">Target Intelligence URL</label>
+                <div className="relative">
+                  <Database className="absolute left-8 top-1/2 -translate-y-1/2 w-7 h-7 text-brand-muted group-focus-within:text-primary-600 transition-colors" />
                   <input
                     required
                     type="url"
                     value={url}
                     onChange={(e) => setUrl(e.target.value)}
-                    className="w-full bg-zinc-500/5 border border-brand-border rounded-[2rem] py-6 pl-16 pr-8 text-brand-text font-bold focus:outline-none focus:ring-2 focus:ring-primary-600/30 transition-all placeholder:text-brand-muted/20 text-lg"
-                    placeholder="https://example.com/strategic-report"
+                    className="w-full bg-zinc-500/5 border-2 border-brand-border rounded-[2.5rem] py-8 pl-20 pr-10 text-brand-text font-bold focus:outline-none focus:border-primary-600/40 focus:ring-4 focus:ring-primary-600/5 transition-all placeholder:text-brand-muted/20 text-xl"
+                    placeholder="https://strategic-intel.ai/mission-brief"
                   />
                 </div>
               </div>
 
               {error && (
-                <div className="p-5 bg-rose-500/5 border border-rose-500/20 rounded-[1.5rem] flex items-center gap-4 text-rose-600 animate-slide-up">
-                  <AlertTriangle className="w-5 h-5 flex-shrink-0" />
-                  <span className="text-[10px] font-black uppercase tracking-widest">{error}</span>
+                <div className="p-6 bg-rose-500/10 border border-rose-500/20 rounded-[2rem] flex items-center gap-5 text-rose-500 animate-slide-up">
+                  <AlertTriangle className="w-7 h-7 flex-shrink-0" />
+                  <span className="text-xs font-black uppercase tracking-widest leading-relaxed">{error}</span>
                 </div>
               )}
 
-              <div className="pt-6 border-t border-brand-border">
+              <div className="pt-8">
                 <button
                   type="submit"
                   disabled={!url.trim() || researching}
-                  className="w-full py-6 bg-primary-600 text-white font-black rounded-[2rem] hover:bg-primary-500 shadow-2xl shadow-primary-900/30 transition-all flex items-center justify-center gap-4 disabled:opacity-50 text-[12px] uppercase tracking-[0.25em] active:scale-95 group"
+                  className="w-full py-7 bg-primary-600 text-white font-black rounded-[2.5rem] hover:bg-primary-500 shadow-3xl shadow-primary-900/50 transition-all flex items-center justify-center gap-5 disabled:opacity-40 text-[14px] uppercase tracking-[0.3em] active:scale-[0.98] group"
                 >
-                  Deploy Research Agent
-                  <ArrowRight className="w-5 h-5 group-hover:translate-x-2 transition-transform" />
+                  <Search className="w-6 h-6 group-hover:scale-125 transition-transform" />
+                  Execute Deep Research
+                  <ArrowRight className="w-6 h-6 group-hover:translate-x-3 transition-transform" />
                 </button>
               </div>
 
-              <div className="flex items-center justify-center gap-3 opacity-40">
-                <ShieldCheck className="w-4 h-4 text-brand-muted" />
-                <span className="text-[9px] font-black uppercase tracking-widest text-brand-muted">Secure TLS Link Mandatory</span>
+              <div className="flex items-center justify-center gap-4 opacity-30 mt-8">
+                <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                <span className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-muted">Quantum Encryption Protocols Active</span>
+                <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
               </div>
             </form>
           </div>
@@ -321,8 +384,15 @@ export const DeepResearchPage: React.FC = () => {
   );
 };
 
-const ShieldCheck = ({ className }: { className?: string }) => (
-  <svg className={className} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1-1z"/><path d="m9 12 2 2 4-4"/>
-  </svg>
-);
+// CSS Injection for reverse spin animation
+const style = document.createElement('style');
+style.textContent = `
+  @keyframes spin-reverse {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(-360deg); }
+  }
+  .animate-spin-reverse {
+    animation: spin-reverse 2s linear infinite;
+  }
+`;
+document.head.appendChild(style);
