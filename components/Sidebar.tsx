@@ -16,15 +16,7 @@ import {
   Mail,
   X,
   Database,
-  ChevronDown,
-  ChevronRight,
-  MonitorPlay,
-  Factory,
-  UserCheck,
-  CircleDollarSign,
-  SearchCode,
-  Globe,
-  Search
+  Lock
 } from 'lucide-react';
 // @ts-ignore
 import { Link, useLocation, useNavigate } from 'react-router-dom';
@@ -35,31 +27,22 @@ export const Sidebar: React.FC = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const { signOut, agent, theme, setTheme, sidebarOpen, setSidebarOpen } = useStore();
-  const [resourcesMenuOpen, setResourcesMenuOpen] = useState(false);
 
-  const isAdmin = agent?.role === 'admin';
-
-  const resourceSubItems = [
-    { label: 'Social Media Marketing', icon: MonitorPlay, key: 'marketing' },
-    { label: 'Manufacturing', icon: Factory, key: 'manufacturing' },
-    { label: 'HR', icon: UserCheck, key: 'hr' },
-    { label: 'Finance', icon: CircleDollarSign, key: 'finance' },
-    { label: 'Market Research', icon: SearchCode, key: 'market-research' },
-  ];
-
-  const navItems = [
+  // Active items (The first 6 requested by user)
+  const activeNavItems = [
     { icon: Sparkles, label: 'AI Chat', path: '/' },
-    { icon: Search, label: 'Neural Research', path: '/research' },
     { icon: LayoutDashboard, label: 'Dashboard', path: '/dashboard' },
     { icon: MessageSquare, label: 'Conversations', path: '/conversations' },
-    { icon: Mail, label: 'Emails', path: '/emails' },
     { icon: Hash, label: 'Team Hub', path: '/channels' },
-    ...(isAdmin ? [
-      { icon: Terminal, label: 'Chatbot Logs', path: '/chatbot-logs' },
-      { icon: Inbox, label: 'Lead Inquiries', path: '/inquiries' },
-      { icon: Users, label: 'Contacts', path: '/contacts' },
-      { icon: BarChart3, label: 'Analytics', path: '/analytics' }
-    ] : []),
+    { icon: Terminal, label: 'Chatbot Logs', path: '/chatbot-logs' },
+    { icon: Inbox, label: 'Lead Inquiries', path: '/inquiries' },
+  ];
+
+  // Locked items (The rest)
+  const lockedNavItems = [
+    { icon: Users, label: 'Contacts', path: '/contacts' },
+    { icon: Mail, label: 'Emails', path: '/emails' },
+    { icon: BarChart3, label: 'Analytics', path: '/analytics' },
     { icon: Settings, label: 'Settings', path: '/settings' },
   ];
 
@@ -72,7 +55,7 @@ export const Sidebar: React.FC = () => {
     const newTheme = theme === 'light' ? 'dark' : 'light';
     setTheme(newTheme);
     if (agent?.id) {
-      await supabase.from('agents').update({ theme: newTheme }).eq('id', agent.id);
+      await (supabase.from('agents') as any).update({ theme: newTheme }).eq('id', agent.id);
     }
   };
 
@@ -109,80 +92,54 @@ export const Sidebar: React.FC = () => {
           </button>
         </div>
 
-        <nav className="flex-1 px-4 py-4 space-y-1.5 overflow-y-auto custom-scrollbar no-scrollbar">
-          {/* Main Nav */}
-          {navItems.slice(0, 4).map((item) => {
-            const isActive = location.pathname === item.path;
-            return (
-              <Link
-                key={item.path}
-                to={item.path}
-                onClick={() => setSidebarOpen(false)}
-                className={`flex items-center gap-4 px-4 py-3 rounded-2xl transition-all duration-300 group ${
-                  isActive 
-                    ? 'bg-primary-600/10 text-primary-600 dark:text-primary-400 shadow-sm' 
-                    : 'text-brand-muted hover:bg-zinc-500/5 hover:text-brand-text'
-                }`}
-              >
-                <item.icon className={`w-5 h-5 transition-transform duration-300 group-hover:scale-110 ${isActive ? 'text-primary-600 dark:text-primary-400' : ''}`} />
-                <span className={`font-bold text-sm tracking-tight ${isActive ? 'translate-x-1' : ''} transition-transform`}>{item.label}</span>
-                {isActive && <div className="ml-auto w-1.5 h-1.5 rounded-full bg-primary-500 shadow-[0_0_12px_rgba(59,130,246,0.8)]" />}
-              </Link>
-            );
-          })}
-
-          {/* Collapsible Resources Menu */}
-          <div className="space-y-1">
-            <button
-              onClick={() => setResourcesMenuOpen(!resourcesMenuOpen)}
-              className={`w-full flex items-center gap-4 px-4 py-3 rounded-2xl transition-all group ${
-                location.pathname.startsWith('/resources') 
-                  ? 'bg-primary-600/5 text-primary-600' 
-                  : 'text-brand-muted hover:bg-zinc-500/5 hover:text-brand-text'
-              }`}
-            >
-              <Database className="w-5 h-5 text-primary-600/60" />
-              <span className="font-bold text-sm text-left flex-1">Resources</span>
-              {resourcesMenuOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-            </button>
-            
-            {resourcesMenuOpen && (
-              <div className="ml-6 space-y-1 border-l border-brand-border pl-3 animate-slide-up">
-                {resourceSubItems.map((sub) => (
-                  <Link
-                    key={sub.key}
-                    to={`/resources?node=${sub.key}`}
-                    onClick={() => setSidebarOpen(false)}
-                    className="flex items-center gap-3 px-4 py-2.5 rounded-xl text-brand-muted hover:bg-zinc-500/5 hover:text-brand-text transition-all group"
-                  >
-                    <sub.icon className="w-4 h-4 opacity-40 group-hover:opacity-100 group-hover:text-primary-500 transition-all" />
-                    <span className="text-[11px] font-black uppercase tracking-widest truncate">{sub.label}</span>
-                  </Link>
-                ))}
-              </div>
-            )}
+        <nav className="flex-1 px-4 py-4 space-y-1 overflow-y-auto custom-scrollbar no-scrollbar">
+          {/* Active Navigation (Top 6) */}
+          <div className="space-y-1.5 mb-6">
+            {activeNavItems.map((item) => {
+              const isActive = location.pathname === item.path;
+              return (
+                <Link
+                  key={item.path}
+                  to={item.path}
+                  onClick={() => setSidebarOpen(false)}
+                  className={`flex items-center gap-4 px-4 py-3 rounded-2xl transition-all duration-300 group ${
+                    isActive 
+                      ? 'bg-primary-600/10 text-primary-600 dark:text-primary-400 shadow-sm' 
+                      : 'text-brand-muted hover:bg-zinc-500/5 hover:text-brand-text'
+                  }`}
+                >
+                  <item.icon className={`w-5 h-5 transition-transform duration-300 group-hover:scale-110 ${isActive ? 'text-primary-600 dark:text-primary-400' : ''}`} />
+                  <span className={`font-bold text-sm tracking-tight ${isActive ? 'translate-x-1' : ''} transition-transform`}>{item.label}</span>
+                  {isActive && <div className="ml-auto w-1.5 h-1.5 rounded-full bg-primary-500 shadow-[0_0_12px_rgba(59,130,246,0.8)]" />}
+                </Link>
+              );
+            })}
           </div>
 
-          {/* Remaining Nav */}
-          {navItems.slice(4).map((item) => {
-            const isActive = location.pathname === item.path;
-            return (
-              <Link
-                key={item.path}
-                to={item.path}
-                onClick={() => setSidebarOpen(false)}
-                className={`flex items-center gap-4 px-4 py-3 rounded-2xl transition-all duration-300 group ${
-                  isActive 
-                    ? 'bg-primary-600/10 text-primary-600 dark:text-primary-400 shadow-sm' 
-                    : 'text-brand-muted hover:bg-zinc-500/5 hover:text-brand-text'
-                }`}
-              >
-                <item.icon className={`w-5 h-5 transition-transform duration-300 group-hover:scale-110 ${isActive ? 'text-primary-600 dark:text-primary-400' : ''}`} />
-                <span className={`font-bold text-sm tracking-tight ${isActive ? 'translate-x-1' : ''} transition-transform`}>{item.label}</span>
-                {isActive && <div className="ml-auto w-1.5 h-1.5 rounded-full bg-primary-500 shadow-[0_0_12px_rgba(59,130,246,0.8)]" />}
-              </Link>
-            );
-          })}
+          <div className="px-4 pb-4 border-b border-brand-border/50 mb-6">
+            <span className="text-[9px] font-black uppercase tracking-[0.3em] text-brand-muted/40">Locked Protocols</span>
+          </div>
+
+          {/* Locked Navigation Items (Every menu below) */}
+          <div className="space-y-1.5">
+            <div className="flex items-center gap-4 px-4 py-3 rounded-2xl text-brand-muted opacity-40 grayscale cursor-not-allowed">
+              <Database className="w-5 h-5" />
+              <span className="font-bold text-sm tracking-tight">Resource Vault</span>
+              <Lock className="w-3.5 h-3.5 ml-auto" />
+            </div>
+            {lockedNavItems.map((item) => {
+              return (
+                <div
+                  key={item.path}
+                  className="flex items-center gap-4 px-4 py-3 rounded-2xl text-brand-muted opacity-40 grayscale cursor-not-allowed"
+                >
+                  <item.icon className="w-5 h-5" />
+                  <span className="font-bold text-sm tracking-tight">{item.label}</span>
+                  <Lock className="w-3.5 h-3.5 ml-auto" />
+                </div>
+              );
+            })}
+          </div>
         </nav>
 
         <div className="p-6 border-t border-brand-border space-y-4 bg-brand-surface/40">

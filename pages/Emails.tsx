@@ -18,7 +18,9 @@ import {
   AlertCircle,
   RefreshCw,
   CheckCircle2,
-  Globe
+  Globe,
+  Reply,
+  ArrowLeft
 } from 'lucide-react';
 import { supabase } from '../services/supabase';
 import { useStore } from '../store/useStore';
@@ -38,7 +40,9 @@ export const EmailsPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'Inbox' | 'Sent' | 'Drafts'>('Inbox');
   const [emails, setEmails] = useState<EmailRecord[]>([]);
   const [loading, setLoading] = useState(true);
+  const [syncing, setSyncing] = useState(false);
   const [showCompose, setShowCompose] = useState(false);
+  const [selectedEmail, setSelectedEmail] = useState<EmailRecord | null>(null);
   const [search, setSearch] = useState('');
   const [config, setConfig] = useState<any>(null);
   const [sending, setSending] = useState(false);
@@ -72,6 +76,29 @@ export const EmailsPage: React.FC = () => {
     setLoading(false);
   };
 
+  const syncEmails = async () => {
+    if (!config?.webhook_url) {
+      alert("No webhook configured for sync. Check Settings.");
+      return;
+    }
+    setSyncing(true);
+    try {
+      // Direct call to n8n to check for new IMAP/POP3 messages and push to Supabase
+      const res = await fetch(config.webhook_url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'sync_inbound', timestamp: new Date().toISOString() })
+      });
+      if (res.ok) {
+        await fetchEmails();
+      }
+    } catch (err) {
+      console.error("Sync failed:", err);
+    } finally {
+      setSyncing(false);
+    }
+  };
+
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!config?.enabled) {
@@ -90,7 +117,7 @@ export const EmailsPage: React.FC = () => {
             'Content-Type': 'application/json',
             'Authorization': config.webhook_auth_token ? `Bearer ${config.webhook_auth_token}` : ''
           },
-          body: JSON.stringify({ to, from: config.from_email, subject, message: body })
+          body: JSON.stringify({ to, from: config.from_email, subject, message: body, action: 'send' })
         });
         if (!res.ok) throw new Error("Webhook relay failed to process transmission.");
       } else if (config.emailjs_public_key) {
@@ -133,6 +160,12 @@ export const EmailsPage: React.FC = () => {
     setTo(''); setSubject(''); setBody('');
   };
 
+  const markAsRead = async (email: EmailRecord) => {
+    if (email.is_read) return;
+    await supabase.from('emails').update({ is_read: true }).eq('id', email.id);
+    fetchEmails();
+  };
+
   return (
     <div className="flex-1 flex flex-col bg-brand-surface h-screen animate-fade-in transition-colors duration-500 overflow-hidden">
       {(!config || !config.enabled) && (
@@ -166,6 +199,14 @@ export const EmailsPage: React.FC = () => {
             />
           </div>
           <button 
+            onClick={syncEmails}
+            disabled={syncing}
+            className="flex items-center gap-3 px-6 py-3.5 bg-zinc-500/10 border border-brand-border text-brand-text rounded-2xl text-[11px] font-black uppercase tracking-widest hover:bg-zinc-500/20 transition-all active:scale-95"
+          >
+            {syncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+            Sync
+          </button>
+          <button 
             onClick={() => setShowCompose(true)}
             className="flex items-center gap-3 px-8 py-3.5 bg-primary-600 text-white rounded-2xl text-[11px] font-black uppercase tracking-widest hover:bg-primary-700 transition-all shadow-xl shadow-primary-900/30 active:scale-95"
           >
@@ -186,7 +227,7 @@ export const EmailsPage: React.FC = () => {
             ].map(tab => (
               <button
                 key={tab.id}
-                onClick={() => setActiveTab(tab.id as any)}
+                onClick={() => { setActiveTab(tab.id as any); setSelectedEmail(null); }}
                 className={`w-full flex items-center gap-4 px-5 py-4 rounded-2xl transition-all group ${
                   activeTab === tab.id 
                     ? 'bg-primary-600 text-white shadow-xl shadow-primary-900/20' 
@@ -214,9 +255,48 @@ export const EmailsPage: React.FC = () => {
           </div>
         </div>
 
-        {/* List */}
+        {/* Content Area */}
         <div className="flex-1 overflow-y-auto custom-scrollbar bg-brand-surface/20">
-          {loading ? (
+          {selectedEmail ? (
+            <div className="p-12 animate-fade-in max-w-4xl mx-auto">
+              <button 
+                onClick={() => setSelectedEmail(null)}
+                className="flex items-center gap-2 text-[10px] font-black text-primary-600 uppercase tracking-widest mb-10 hover:translate-x-[-4px] transition-transform"
+              >
+                <ArrowLeft className="w-4 h-4" /> Back to {activeTab}
+              </button>
+
+              <div className="glass-card rounded-[3rem] p-10 shadow-xl border-primary-500/10">
+                <div className="flex justify-between items-start mb-10 pb-8 border-b border-brand-border">
+                  <div>
+                    <h2 className="text-3xl font-display font-bold text-brand-text mb-4">{selectedEmail.subject}</h2>
+                    <div className="flex flex-col gap-1">
+                      <p className="text-xs font-bold text-brand-text">From: <span className="text-primary-600">{selectedEmail.from_address}</span></p>
+                      <p className="text-xs font-bold text-brand-muted">To: {selectedEmail.to_address.join(', ')}</p>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-[10px] font-black text-brand-muted uppercase tracking-widest">{new Date(selectedEmail.created_at).toLocaleString()}</p>
+                    <button 
+                      onClick={() => {
+                        setTo(selectedEmail.from_address);
+                        setSubject(`Re: ${selectedEmail.subject}`);
+                        setBody(`\n\n--- Original Message ---\n${selectedEmail.body_text}`);
+                        setShowCompose(true);
+                      }}
+                      className="mt-4 flex items-center gap-2 px-6 py-2 bg-primary-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-primary-500 transition-all"
+                    >
+                      <Reply className="w-3.5 h-3.5" /> Reply
+                    </button>
+                  </div>
+                </div>
+
+                <div className="prose prose-invert max-w-none text-brand-text text-base leading-relaxed whitespace-pre-wrap font-medium opacity-90">
+                  {selectedEmail.body_text}
+                </div>
+              </div>
+            </div>
+          ) : loading ? (
             <div className="h-full flex flex-col items-center justify-center gap-4">
               <Loader2 className="w-10 h-10 animate-spin text-primary-500" />
               <p className="text-[10px] font-black uppercase tracking-widest text-brand-muted">Polling Transmissions...</p>
@@ -231,12 +311,13 @@ export const EmailsPage: React.FC = () => {
             </div>
           ) : (
             <div className="divide-y divide-brand-border">
-              {emails.map(email => (
+              {emails.filter(e => e.subject.toLowerCase().includes(search.toLowerCase()) || e.from_address.toLowerCase().includes(search.toLowerCase())).map(email => (
                 <div 
                   key={email.id} 
+                  onClick={() => { setSelectedEmail(email); markAsRead(email); }}
                   className={`p-6 hover:bg-zinc-500/5 cursor-pointer transition-all flex items-center gap-8 group ${!email.is_read ? 'bg-primary-600/5' : ''}`}
                 >
-                  <button className="text-brand-muted hover:text-amber-400 transition-colors">
+                  <button onClick={(e) => e.stopPropagation()} className="text-brand-muted hover:text-amber-400 transition-colors">
                     <Star className="w-4 h-4" />
                   </button>
                   <div className="w-48 flex-shrink-0">
@@ -254,8 +335,8 @@ export const EmailsPage: React.FC = () => {
                   </div>
                   <div className="flex-shrink-0 flex items-center gap-6">
                     <div className="opacity-0 group-hover:opacity-100 flex items-center gap-4 transition-all">
-                      <button className="p-2 text-brand-muted hover:text-primary-600 transition-colors"><Archive className="w-4 h-4" /></button>
-                      <button className="p-2 text-brand-muted hover:text-rose-500 transition-colors"><Trash2 className="w-4 h-4" /></button>
+                      <button onClick={(e) => e.stopPropagation()} className="p-2 text-brand-muted hover:text-primary-600 transition-colors"><Archive className="w-4 h-4" /></button>
+                      <button onClick={(e) => e.stopPropagation()} className="p-2 text-brand-muted hover:text-rose-500 transition-colors"><Trash2 className="w-4 h-4" /></button>
                     </div>
                     <span className="text-[10px] font-black uppercase text-brand-muted tracking-widest">
                       {new Date(email.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}

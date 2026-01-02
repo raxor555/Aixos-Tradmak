@@ -19,10 +19,12 @@ import {
   Video,
   X,
   Paperclip,
-  PanelLeft
+  PanelLeft,
+  LayoutDashboard
 } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import { supabase } from '../services/supabase';
+import { aiService } from '../services/ai.service';
 
 interface ChatMessage {
   id: string;
@@ -46,6 +48,7 @@ interface CommandOption {
 }
 
 const COMMAND_OPTIONS: CommandOption[] = [
+  { id: 'dashboard', label: 'ASK Dashboard', prefix: '/Dashboard:', icon: LayoutDashboard, description: 'Analyze real-time metrics, contacts & performance' },
   { id: 'image', label: 'Create Image', prefix: '/CreateImage:', icon: ImageIcon, description: 'Generate visual assets via DALL-E/Flux' },
   { id: 'research', label: 'Deep Research', prefix: '/DeepResearch:', icon: Search, description: 'Comprehensive web-grounded analysis' },
   { id: 'video', label: 'Analyze Video', prefix: '/AnalyzeVideo:', icon: Video, description: 'Extract intelligence from video sources' },
@@ -205,6 +208,74 @@ export const AIChat: React.FC = () => {
     setAttachments(prev => prev.filter((_, i) => i !== index));
   };
 
+  // Helper to render Markdown tables as HTML
+  const renderContent = (content: string) => {
+    if (!content.includes('|')) return <div className="whitespace-pre-wrap">{content}</div>;
+
+    const lines = content.split('\n');
+    const parts: React.ReactNode[] = [];
+    let currentTable: string[][] = [];
+    let isInsideTable = false;
+
+    const flushTable = (idx: number) => {
+      if (currentTable.length > 0) {
+        parts.push(
+          <div key={`table-${idx}`} className="overflow-x-auto my-4 markdown-container">
+            <table className="min-w-full border-collapse">
+              <thead>
+                <tr className="border-b-2 border-primary-500/20">
+                  {currentTable[0]?.map((cell, i) => (
+                    <th key={i} className="px-4 py-2 text-left font-black text-[10px] uppercase tracking-wider text-primary-500 bg-primary-500/5">
+                      {cell}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {currentTable.slice(1).map((row, ri) => (
+                  <tr key={ri} className="border-b border-brand-border hover:bg-zinc-500/5 transition-colors">
+                    {row.map((cell, ci) => (
+                      <td key={ci} className="px-4 py-2 text-sm font-medium">{cell}</td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        );
+        currentTable = [];
+      }
+      isInsideTable = false;
+    };
+
+    lines.forEach((line, idx) => {
+      const trimmed = line.trim();
+      const isTableRow = trimmed.startsWith('|') && trimmed.endsWith('|');
+      
+      if (isTableRow) {
+        // Basic cleaning of Markdown table cell array
+        const cells = line.split('|').map(c => c.trim()).filter((c, i, arr) => {
+          if (i === 0 && c === '') return false;
+          if (i === arr.length - 1 && c === '') return false;
+          return true;
+        });
+
+        // Skip separator line |---|
+        if (cells.every(c => c.match(/^[:\-\s]+$/))) return;
+        
+        isInsideTable = true;
+        currentTable.push(cells);
+      } else {
+        if (isInsideTable) flushTable(idx);
+        if (trimmed) parts.push(<p key={idx} className="mb-2 whitespace-pre-wrap">{line}</p>);
+      }
+    });
+
+    if (isInsideTable) flushTable(lines.length);
+
+    return <>{parts}</>;
+  };
+
   const handleSendMessage = async (e?: React.FormEvent) => {
     e?.preventDefault();
     if ((!input.trim() && attachments.length === 0) || isTyping || !agent?.id) return;
@@ -215,28 +286,18 @@ export const AIChat: React.FC = () => {
       if (!convId) {
         const { data: newConv } = await supabase
           .from('ai_conversations')
-          .insert({ agent_id: agent.id, title: input.substring(0, 30) || 'Image Insight Session' })
+          .insert({ agent_id: agent.id, title: input.substring(0, 30) || 'Intelligence Session' })
           .select().single();
         if (!newConv) return;
         convId = newConv.id;
         setActiveConvId(convId);
       }
 
-      // Fetch UNLOCKED knowledge context
-      const { data: unlockedResources } = await supabase
-        .from('unlocked_resources')
-        .select('resource:resources(*)')
-        .eq('agent_id', agent.id);
-
-      const knowledgeContext = (unlockedResources || [])
-        .map(u => `${(u.resource as any).name}: ${(u.resource as any).knowledge_content}`)
-        .join('\n');
-
       const userText = activeCommand ? `${activeCommand.prefix} ${input}` : input;
+      const isDashboardQuery = activeCommand?.id === 'dashboard';
       
       setInput('');
       setAttachments([]);
-      setActiveCommand(null);
       setIsTyping(true);
 
       const { data: savedUserMsg } = await supabase
@@ -246,25 +307,82 @@ export const AIChat: React.FC = () => {
 
       if (savedUserMsg) setMessages(prev => [...prev, savedUserMsg]);
 
-      const formData = new FormData();
-      formData.append('message', userText);
-      formData.append('user', agent.name);
-      formData.append('agentId', agent.id);
-      formData.append('conversationId', convId);
-      formData.append('knowledgeContext', knowledgeContext);
-      formData.append('timestamp', new Date().toISOString());
-      
-      attachments.forEach((file, index) => {
-        formData.append(`file_${index}`, file);
-      });
+      let aiResponse = "";
 
-      const response = await fetch(webhookUrl, {
-        method: 'POST',
-        body: formData,
-      });
+      if (isDashboardQuery) {
+        const [
+          { count: contactsCount },
+          { count: convsCount },
+          { count: inquiriesCount },
+          { count: researchCount },
+          { count: agentsCount },
+          { count: chatbotCount },
+          { count: channelsCount },
+          { count: messagesCount },
+          { count: emailsCount },
+          { data: chatbotTraces },
+          { data: recentInquiries }
+        ] = await Promise.all([
+          supabase.from('contacts').select('*', { count: 'exact', head: true }),
+          supabase.from('conversations').select('*', { count: 'exact', head: true }),
+          supabase.from('inquiries').select('*', { count: 'exact', head: true }),
+          supabase.from('research_logs').select('*', { count: 'exact', head: true }),
+          supabase.from('agents').select('*', { count: 'exact', head: true }),
+          supabase.from('chatbot_conversation').select('*', { count: 'exact', head: true }),
+          supabase.from('internal_channels').select('*', { count: 'exact', head: true }),
+          supabase.from('messages').select('*', { count: 'exact', head: true }),
+          supabase.from('emails').select('*', { count: 'exact', head: true }),
+          supabase.from('chatbot_conversation').select('id, name, session_id, conversation, created_at').order('created_at', { ascending: false }).limit(10),
+          supabase.from('inquiries').select('name, email, message, created_at').order('created_at', { ascending: false }).limit(5)
+        ]);
 
-      const resData = await response.json();
-      const aiResponse = typeof resData === 'string' ? resData : resData.output || resData.reply || "Transmission received.";
+        const metrics = {
+          counts: {
+            contacts: contactsCount || 0,
+            conversations: convsCount || 0,
+            inquiries: inquiriesCount || 0,
+            researchMissions: researchCount || 0,
+            onlineAgents: agentsCount || 0,
+            chatbotTraces: chatbotCount || 0,
+            internalChannels: channelsCount || 0,
+            globalMessages: messagesCount || 0,
+            emailsDispatched: emailsCount || 0
+          },
+          chatbotTraces: chatbotTraces || [],
+          recentInquiries: recentInquiries || []
+        };
+
+        aiResponse = await aiService.queryDashboard(userText, metrics, agent.name);
+      } else {
+        const { data: unlockedResources } = await supabase
+          .from('unlocked_resources')
+          .select('resource:resources(*)')
+          .eq('agent_id', agent.id);
+
+        const knowledgeContext = (unlockedResources || [])
+          .map(u => `${(u.resource as any).name}: ${(u.resource as any).knowledge_content}`)
+          .join('\n');
+
+        const formData = new FormData();
+        formData.append('message', userText);
+        formData.append('user', agent.name);
+        formData.append('agentId', agent.id);
+        formData.append('conversationId', convId);
+        formData.append('knowledgeContext', knowledgeContext);
+        formData.append('timestamp', new Date().toISOString());
+        
+        attachments.forEach((file, index) => {
+          formData.append(`file_${index}`, file);
+        });
+
+        const response = await fetch(webhookUrl, {
+          method: 'POST',
+          body: formData,
+        });
+
+        const resData = await response.json();
+        aiResponse = typeof resData === 'string' ? resData : resData.output || resData.reply || "Transmission received.";
+      }
 
       const { data: savedAiMsg } = await supabase
         .from('ai_messages')
@@ -276,6 +394,7 @@ export const AIChat: React.FC = () => {
         await supabase.from('ai_conversations').update({ last_message_at: new Date().toISOString() }).eq('id', convId);
       }
     } catch (err: any) {
+      console.error(err);
       setError("Synchronization error.");
     } finally {
       setIsTyping(false);
@@ -404,7 +523,7 @@ export const AIChat: React.FC = () => {
                           ? 'glass-card text-brand-text rounded-tl-none' 
                           : 'bg-primary-600 text-white border-primary-500 rounded-tr-none'
                       }`}>
-                        {msg.content}
+                        {renderContent(msg.content)}
                       </div>
                       <p className="text-[10px] text-brand-muted mt-2 md:mt-3 font-extrabold uppercase tracking-[0.2em] opacity-60">
                         {isAI ? 'Cognitive Processor' : 'Authored By Me'} • {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -445,7 +564,7 @@ export const AIChat: React.FC = () => {
                   <div key={idx} className="relative w-14 h-14 md:w-16 md:h-16 rounded-xl overflow-hidden border border-primary-500/30 shadow-xl group">
                     <img src={URL.createObjectURL(file)} className="w-full h-full object-cover" alt="preview" />
                     <button 
-                      type="button"
+                      type="button" 
                       onClick={() => removeAttachment(idx)}
                       className="absolute top-1 right-1 w-4 h-4 md:w-5 md:h-5 bg-red-500 text-white rounded-full flex items-center justify-center opacity-100 scale-90"
                     >
@@ -517,9 +636,16 @@ export const AIChat: React.FC = () => {
               
               <div className="flex-1 flex items-center gap-2 md:gap-3 overflow-hidden px-2 md:px-4">
                 {activeCommand && (
-                  <div className="flex-shrink-0 flex items-center gap-1.5 bg-primary-600/10 border border-primary-500/20 px-2.5 py-1 rounded-full animate-fade-in max-w-[80px] md:max-w-none">
+                  <div className="flex-shrink-0 flex items-center gap-1.5 bg-primary-600/10 border border-primary-500/20 px-2.5 py-1 rounded-full animate-fade-in max-w-[120px] md:max-w-none relative pr-8">
                     <activeCommand.icon className="w-3 h-3 text-primary-600 flex-shrink-0" />
                     <span className="text-[9px] font-black text-primary-600 uppercase tracking-widest leading-none truncate">{activeCommand.prefix.replace(':', '')}</span>
+                    <button 
+                      type="button" 
+                      onClick={(e) => { e.stopPropagation(); setActiveCommand(null); }}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-primary-600 hover:text-red-500"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
                   </div>
                 )}
 

@@ -115,8 +115,8 @@ const App: React.FC = () => {
                         <Route path="/resources" element={<ResourcesPage />} />
                         <Route path="/emails" element={<EmailsPage />} />
                         <Route path="/channels" element={<Channels />} />
-                        <Route path="/chatbot-logs" element={<AuthGuard requireAdmin><ChatbotMonitor /></AuthGuard>} />
-                        <Route path="/inquiries" element={<AuthGuard requireAdmin><Inquiries /></AuthGuard>} />
+                        <Route path="/chatbot-logs" element={<ChatbotMonitor />} />
+                        <Route path="/inquiries" element={<Inquiries />} />
                         <Route path="/contacts" element={<AuthGuard requireAdmin><ContactsPage /></AuthGuard>} />
                         <Route path="/analytics" element={<AuthGuard requireAdmin><AnalyticsPage /></AuthGuard>} />
                         <Route path="/settings" element={<SettingsPage />} />
