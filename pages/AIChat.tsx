@@ -488,7 +488,7 @@ export const AIChat: React.FC = () => {
             
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 md:gap-5 w-full max-w-3xl">
               {[
-                "Who is Rayyan Shaikh?",
+                "What did the latest conversation talked about?",
                 "How many chatbot conversations exist?",
                 "Summarize recent lead inquiries",
                 "Analyze support efficiency"
