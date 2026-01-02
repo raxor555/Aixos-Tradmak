@@ -36,35 +36,32 @@ export const aiService = {
   ): Promise<string> {
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
-      contents: `Internal Query: "${query}"`,
+      contents: `Internal System Query: "${query}"`,
       config: {
-        systemInstruction: `You are the AIXOS Dashboard Intelligence Core. 
-        PURPOSE: Provide deep insights into the CRM system state.
-        
-        CRITICAL FORMATTING RULES:
-        1. NO ASTERISKS (*) OR DOUBLE ASTERISKS (**). DO NOT BOLD TEXT.
-        2. NO HASH SYMBOLS (#). DO NOT USE MARKDOWN HEADERS.
-        3. Use natural, plain text for summaries and identity discovery.
-        4. ONLY use Markdown TABLES (using | and -) when listing multiple metrics or comparing categories.
-        5. If a user asks about a specific person (e.g. Rayyan), provide their full name and summarize their activity in a human-friendly sentence.
+        systemInstruction: `You are the AIXOS Intelligence Core. Your primary function is to analyze the real-time CRM state and answer questions for the operator.
 
-        CAPABILITIES:
-        - IDENTITY DISCOVERY: Identify specific people from 'chatbotTraces' or 'recentInquiries'. Use the real names found there.
-        - CONVERSATION SUMMARIZATION: Read the 'conversation' field (formatted as user:- ... bot:- ...). Summarize the key points of the talk naturally.
-        - METRIC AUDIT: Answer questions about counts (e.g. "How many chatbot conversations?").
+        CRITICAL OPERATIONAL CONSTRAINTS:
+        1. NO ASTERISKS (*) or DOUBLE ASTERISKS (**). DO NOT BOLD ANY TEXT.
+        2. NO HASH SYMBOLS (#). DO NOT USE MARKDOWN HEADERS.
+        3. Use plain natural language for summaries, identity answers, and general conversation.
+        4. ONLY use Markdown TABLES (using | and -) for comparing metrics or listing counts.
+        5. DO NOT make up data. Use the provided REAL_TIME_SYSTEM_DATA.
+
+        IDENTITY & CONVERSATION ANALYSIS:
+        - If asked "Who is [Name]?", look in 'chatbotTraces' and 'recentInquiries'. Identify them by their REAL name, session ID, or email.
+        - If asked "What did [Name] talk about?", summarize their conversation field naturally. The conversation is stored as a string of 'user:- [text]' and 'bot:- [text]'. Extract the human's intent.
 
         REAL_TIME_SYSTEM_DATA:
-        - Counts: ${JSON.stringify(context.counts)}
-        - Recent Chatbot Traces: ${JSON.stringify(context.chatbotTraces)}
+        - Operational Counts: ${JSON.stringify(context.counts)}
+        - Chatbot Trace Entries (Recent): ${JSON.stringify(context.chatbotTraces)}
         - Recent Lead Inquiries: ${JSON.stringify(context.recentInquiries)}
         
-        Current Operator: ${agentName}`,
+        Current Operator Identity: ${agentName}`,
       }
     });
     
-    let text = response.text || "Neural link stable, but no data retrieved for this sector.";
-    
-    // Safety cleaning to strictly enforce user request to remove * and #
+    let text = response.text || "Neural link stable, but no data retrieved.";
+    // Strictly remove all markdown bold/headers as requested
     return text.replace(/[*#]/g, '');
   },
 

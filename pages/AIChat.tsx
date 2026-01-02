@@ -208,72 +208,73 @@ export const AIChat: React.FC = () => {
     setAttachments(prev => prev.filter((_, i) => i !== index));
   };
 
-  // Helper to render Markdown tables as HTML
+  // Improved Markdown Table Renderer
   const renderContent = (content: string) => {
     if (!content.includes('|')) return <div className="whitespace-pre-wrap">{content}</div>;
 
     const lines = content.split('\n');
-    const parts: React.ReactNode[] = [];
+    const result: React.ReactNode[] = [];
     let currentTable: string[][] = [];
     let isInsideTable = false;
 
-    const flushTable = (idx: number) => {
-      if (currentTable.length > 0) {
-        parts.push(
-          <div key={`table-${idx}`} className="overflow-x-auto my-4 markdown-container">
-            <table className="min-w-full border-collapse">
-              <thead>
-                <tr className="border-b-2 border-primary-500/20">
-                  {currentTable[0]?.map((cell, i) => (
-                    <th key={i} className="px-4 py-2 text-left font-black text-[10px] uppercase tracking-wider text-primary-500 bg-primary-500/5">
-                      {cell}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {currentTable.slice(1).map((row, ri) => (
-                  <tr key={ri} className="border-b border-brand-border hover:bg-zinc-500/5 transition-colors">
-                    {row.map((cell, ci) => (
-                      <td key={ci} className="px-4 py-2 text-sm font-medium">{cell}</td>
-                    ))}
-                  </tr>
+    const renderTable = (tableData: string[][], key: number) => (
+      <div key={`table-${key}`} className="overflow-x-auto my-6 markdown-container">
+        <table className="min-w-full border-collapse rounded-xl overflow-hidden shadow-sm border border-brand-border">
+          <thead>
+            <tr className="bg-primary-600/5">
+              {tableData[0]?.map((cell, i) => (
+                <th key={i} className="px-5 py-3 text-left font-black text-[11px] uppercase tracking-[0.2em] text-primary-600 border-b-2 border-primary-500/20">
+                  {cell.trim()}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {tableData.slice(1).map((row, ri) => (
+              <tr key={ri} className="border-b border-brand-border last:border-0 hover:bg-zinc-500/5 transition-colors">
+                {row.map((cell, ci) => (
+                  <td key={ci} className="px-5 py-3 text-sm font-semibold text-brand-text">
+                    {cell.trim()}
+                  </td>
                 ))}
-              </tbody>
-            </table>
-          </div>
-        );
-        currentTable = [];
-      }
-      isInsideTable = false;
-    };
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    );
 
     lines.forEach((line, idx) => {
       const trimmed = line.trim();
       const isTableRow = trimmed.startsWith('|') && trimmed.endsWith('|');
       
       if (isTableRow) {
-        // Basic cleaning of Markdown table cell array
-        const cells = line.split('|').map(c => c.trim()).filter((c, i, arr) => {
-          if (i === 0 && c === '') return false;
-          if (i === arr.length - 1 && c === '') return false;
-          return true;
-        });
-
-        // Skip separator line |---|
-        if (cells.every(c => c.match(/^[:\-\s]+$/))) return;
+        const cells = line.split('|').filter((_, i, arr) => i > 0 && i < arr.length - 1).map(c => c.trim());
+        const isSeparator = cells.every(c => /^[:\-\s]+$/.test(c));
+        
+        if (isSeparator) return; // Skip Markdown separator lines (|---|)
         
         isInsideTable = true;
         currentTable.push(cells);
       } else {
-        if (isInsideTable) flushTable(idx);
-        if (trimmed) parts.push(<p key={idx} className="mb-2 whitespace-pre-wrap">{line}</p>);
+        if (isInsideTable) {
+          result.push(renderTable(currentTable, idx));
+          currentTable = [];
+          isInsideTable = false;
+        }
+        if (trimmed) {
+          result.push(<p key={idx} className="mb-4 text-base leading-relaxed text-brand-text opacity-90 font-medium whitespace-pre-wrap">{line}</p>);
+        } else {
+          result.push(<div key={idx} className="h-2" />);
+        }
       }
     });
 
-    if (isInsideTable) flushTable(lines.length);
+    if (isInsideTable) {
+      result.push(renderTable(currentTable, lines.length));
+    }
 
-    return <>{parts}</>;
+    return <>{result}</>;
   };
 
   const handleSendMessage = async (e?: React.FormEvent) => {
@@ -310,6 +311,7 @@ export const AIChat: React.FC = () => {
       let aiResponse = "";
 
       if (isDashboardQuery) {
+        // Precise data gathering for the AI
         const [
           { count: contactsCount },
           { count: convsCount },
@@ -332,19 +334,19 @@ export const AIChat: React.FC = () => {
           supabase.from('internal_channels').select('*', { count: 'exact', head: true }),
           supabase.from('messages').select('*', { count: 'exact', head: true }),
           supabase.from('emails').select('*', { count: 'exact', head: true }),
-          supabase.from('chatbot_conversation').select('id, name, session_id, conversation, created_at').order('created_at', { ascending: false }).limit(10),
+          supabase.from('chatbot_conversation').select('id, name, email, conversation, created_at, session_id').order('created_at', { ascending: false }).limit(10),
           supabase.from('inquiries').select('name, email, message, created_at').order('created_at', { ascending: false }).limit(5)
         ]);
 
         const metrics = {
           counts: {
             contacts: contactsCount || 0,
-            conversations: convsCount || 0,
-            inquiries: inquiriesCount || 0,
+            externalConversations: convsCount || 0,
+            leadInquiries: inquiriesCount || 0,
             researchMissions: researchCount || 0,
             onlineAgents: agentsCount || 0,
             chatbotTraces: chatbotCount || 0,
-            internalChannels: channelsCount || 0,
+            strategicChannels: channelsCount || 0,
             globalMessages: messagesCount || 0,
             emailsDispatched: emailsCount || 0
           },
@@ -395,7 +397,7 @@ export const AIChat: React.FC = () => {
       }
     } catch (err: any) {
       console.error(err);
-      setError("Synchronization error.");
+      setError("Synchronous link interrupted. Verification required.");
     } finally {
       setIsTyping(false);
       fetchConversations();
@@ -487,10 +489,10 @@ export const AIChat: React.FC = () => {
             
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 md:gap-5 w-full max-w-3xl">
               {[
-                "Analyze support efficiency",
-                "Draft weekly performance report",
-                "Identify high-priority leads",
-                "Optimize agent workflows"
+                "Who is Rayyan Shaikh?",
+                "How many chatbot conversations exist?",
+                "Summarize recent lead inquiries",
+                "Analyze support efficiency"
               ].map((suggestion) => (
                 <button
                   key={suggestion}
@@ -526,7 +528,7 @@ export const AIChat: React.FC = () => {
                         {renderContent(msg.content)}
                       </div>
                       <p className="text-[10px] text-brand-muted mt-2 md:mt-3 font-extrabold uppercase tracking-[0.2em] opacity-60">
-                        {isAI ? 'Cognitive Processor' : 'Authored By Me'} • {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        {isAI ? 'Intelligence Core' : (agent?.name || 'Authorized Operator')} • {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                       </p>
                     </div>
                   </div>
