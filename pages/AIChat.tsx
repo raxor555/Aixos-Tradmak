@@ -138,23 +138,28 @@ export const AIChat: React.FC = () => {
         .order('last_message_at', { ascending: false });
       setConversations(data || []);
     } catch (err) {
-      setError("Unable to load chat history.");
+      // Supabase unavailable — skip silently
     } finally {
       setLoadingHistory(false);
     }
   };
 
   const fetchMessages = async (convId: string) => {
-    const { data } = await supabase
-      .from('ai_messages')
-      .select('*')
-      .eq('conversation_id', convId)
-      .order('created_at', { ascending: true });
-    setMessages(data || []);
+    try {
+      const { data } = await supabase
+        .from('ai_messages')
+        .select('*')
+        .eq('conversation_id', convId)
+        .order('created_at', { ascending: true });
+      setMessages(data || []);
+    } catch {
+      setMessages([]);
+    }
   };
 
   useEffect(() => {
     if (agent?.id) fetchConversations();
+    else setLoadingHistory(false);
   }, [agent]);
 
   useEffect(() => {
@@ -167,21 +172,34 @@ export const AIChat: React.FC = () => {
   }, [messages, isTyping]);
 
   const startNewChat = async () => {
-    if (!agent?.id) return;
-    const { data } = await supabase
-      .from('ai_conversations')
-      .insert({ agent_id: agent.id, title: 'New Discussion' })
-      .select().single();
-    if (data) {
-      setActiveConvId(data.id);
-      fetchConversations();
+    if (!agent?.id) {
+      setActiveConvId(null);
+      setMessages([]);
+      setHistoryOpen(false);
+      return;
+    }
+    try {
+      const { data } = await supabase
+        .from('ai_conversations')
+        .insert({ agent_id: agent.id, title: 'New Discussion' })
+        .select().single();
+      if (data) {
+        setActiveConvId(data.id);
+        fetchConversations();
+        setHistoryOpen(false);
+      }
+    } catch {
+      setActiveConvId(null);
+      setMessages([]);
       setHistoryOpen(false);
     }
   };
 
   const deleteConversation = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    await supabase.from('ai_conversations').delete().eq('id', id);
+    try {
+      await supabase.from('ai_conversations').delete().eq('id', id);
+    } catch {}
     if (activeConvId === id) setActiveConvId(null);
     fetchConversations();
   };
@@ -208,7 +226,6 @@ export const AIChat: React.FC = () => {
     setAttachments(prev => prev.filter((_, i) => i !== index));
   };
 
-  // Improved Markdown Table Renderer with refined aesthetics
   const renderContent = (content: string) => {
     if (!content.includes('|')) return <div className="whitespace-pre-wrap">{content}</div>;
 
@@ -279,99 +296,110 @@ export const AIChat: React.FC = () => {
 
   const handleSendMessage = async (e?: React.FormEvent) => {
     e?.preventDefault();
-    if ((!input.trim() && attachments.length === 0) || isTyping || !agent?.id) return;
+    if ((!input.trim() && attachments.length === 0) || isTyping) return;
     setError(null);
 
+    const userText = activeCommand ? `${activeCommand.prefix} ${input}` : input;
+    const isDashboardQuery = activeCommand?.id === 'dashboard';
+
+    setInput('');
+    setActiveCommand(null);
+    setAttachments([]);
+    setIsTyping(true);
+
+    // Show user message in UI immediately — no Supabase dependency
+    const tempUserMsg: ChatMessage = {
+      id: `user-${Date.now()}`,
+      role: 'user',
+      content: userText,
+      created_at: new Date().toISOString(),
+    };
+    setMessages(prev => [...prev, tempUserMsg]);
+
     let convId = activeConvId;
+
     try {
-      if (!convId) {
-        const { data: newConv } = await supabase
-          .from('ai_conversations')
-          .insert({ agent_id: agent.id, title: input.substring(0, 30) || 'Intelligence Session' })
-          .select().single();
-        if (!newConv) return;
-        convId = newConv.id;
-        setActiveConvId(convId);
+      // Attempt to persist to Supabase — non-blocking, fails gracefully
+      if (agent?.id) {
+        try {
+          if (!convId) {
+            const { data: newConv } = await supabase
+              .from('ai_conversations')
+              .insert({ agent_id: agent.id, title: userText.substring(0, 30) || 'Intelligence Session' })
+              .select().single();
+            if (newConv) {
+              convId = newConv.id;
+              setActiveConvId(convId);
+            }
+          }
+          await supabase
+            .from('ai_messages')
+            .insert({ conversation_id: convId, role: 'user', content: userText });
+        } catch (dbErr) {
+          console.warn('[AIXOS] Supabase unavailable, continuing without persistence:', dbErr);
+        }
       }
 
-      const userText = activeCommand ? `${activeCommand.prefix} ${input}` : input;
-      const isDashboardQuery = activeCommand?.id === 'dashboard';
-      
-      setInput('');
-      setAttachments([]);
-      setIsTyping(true);
+      let aiResponse = '';
 
-      const { data: savedUserMsg } = await supabase
-        .from('ai_messages')
-        .insert({ conversation_id: convId, role: 'user', content: userText })
-        .select().single();
+      if (isDashboardQuery && agent?.id) {
+        try {
+          const [
+            { count: contactsCount },
+            { count: convsCount },
+            { count: inquiriesCount },
+            { count: researchCount },
+            { count: agentsCount },
+            { count: chatbotCount },
+            { count: channelsCount },
+            { count: messagesCount },
+            { count: emailsCount },
+            { data: chatbotTraces },
+            { data: recentInquiries }
+          ] = await Promise.all([
+            supabase.from('contacts').select('*', { count: 'exact', head: true }),
+            supabase.from('conversations').select('*', { count: 'exact', head: true }),
+            supabase.from('inquiries').select('*', { count: 'exact', head: true }),
+            supabase.from('research_logs').select('*', { count: 'exact', head: true }),
+            supabase.from('agents').select('*', { count: 'exact', head: true }),
+            supabase.from('chatbot_conversation').select('*', { count: 'exact', head: true }),
+            supabase.from('internal_channels').select('*', { count: 'exact', head: true }),
+            supabase.from('messages').select('*', { count: 'exact', head: true }),
+            supabase.from('emails').select('*', { count: 'exact', head: true }),
+            supabase.from('chatbot_conversation').select('id, name, email, conversation, created_at, session_id').order('created_at', { ascending: false }).limit(15),
+            supabase.from('inquiries').select('name, email, message, created_at').order('created_at', { ascending: false }).limit(5)
+          ]);
 
-      if (savedUserMsg) setMessages(prev => [...prev, savedUserMsg]);
+          const metrics = {
+            counts: {
+              contacts: contactsCount || 0,
+              externalConversations: convsCount || 0,
+              leadInquiries: inquiriesCount || 0,
+              researchMissions: researchCount || 0,
+              onlineAgents: agentsCount || 0,
+              chatbotConversations: chatbotCount || 0,
+              strategicChannels: channelsCount || 0,
+              globalMessages: messagesCount || 0,
+              emailsDispatched: emailsCount || 0
+            },
+            chatbotTraces: chatbotTraces || [],
+            recentInquiries: recentInquiries || []
+          };
 
-      let aiResponse = "";
-
-      if (isDashboardQuery) {
-        const [
-          { count: contactsCount },
-          { count: convsCount },
-          { count: inquiriesCount },
-          { count: researchCount },
-          { count: agentsCount },
-          { count: chatbotCount },
-          { count: channelsCount },
-          { count: messagesCount },
-          { count: emailsCount },
-          { data: chatbotTraces },
-          { data: recentInquiries }
-        ] = await Promise.all([
-          supabase.from('contacts').select('*', { count: 'exact', head: true }),
-          supabase.from('conversations').select('*', { count: 'exact', head: true }),
-          supabase.from('inquiries').select('*', { count: 'exact', head: true }),
-          supabase.from('research_logs').select('*', { count: 'exact', head: true }),
-          supabase.from('agents').select('*', { count: 'exact', head: true }),
-          supabase.from('chatbot_conversation').select('*', { count: 'exact', head: true }),
-          supabase.from('internal_channels').select('*', { count: 'exact', head: true }),
-          supabase.from('messages').select('*', { count: 'exact', head: true }),
-          supabase.from('emails').select('*', { count: 'exact', head: true }),
-          supabase.from('chatbot_conversation').select('id, name, email, conversation, created_at, session_id').order('created_at', { ascending: false }).limit(15),
-          supabase.from('inquiries').select('name, email, message, created_at').order('created_at', { ascending: false }).limit(5)
-        ]);
-
-        const metrics = {
-          counts: {
-            contacts: contactsCount || 0,
-            externalConversations: convsCount || 0,
-            leadInquiries: inquiriesCount || 0,
-            researchMissions: researchCount || 0,
-            onlineAgents: agentsCount || 0,
-            chatbotConversations: chatbotCount || 0,
-            strategicChannels: channelsCount || 0,
-            globalMessages: messagesCount || 0,
-            emailsDispatched: emailsCount || 0
-          },
-          chatbotTraces: chatbotTraces || [],
-          recentInquiries: recentInquiries || []
-        };
-
-        aiResponse = await aiService.queryDashboard(userText, metrics, agent.name);
+          aiResponse = await aiService.queryDashboard(userText, metrics, agent.name);
+        } catch (dashErr) {
+          aiResponse = 'Dashboard query failed. Unable to reach data layer.';
+        }
       } else {
-        const { data: unlockedResources } = await supabase
-          .from('unlocked_resources')
-          .select('resource:resources(*)')
-          .eq('agent_id', agent.id);
-
-        const knowledgeContext = (unlockedResources || [])
-          .map(u => `${(u.resource as any).name}: ${(u.resource as any).knowledge_content}`)
-          .join('\n');
-
+        // Send to n8n webhook
         const formData = new FormData();
         formData.append('message', userText);
-        formData.append('user', agent.name);
-        formData.append('agentId', agent.id);
-        formData.append('conversationId', convId);
-        formData.append('knowledgeContext', knowledgeContext);
+        formData.append('user', agent?.name || 'User');
+        formData.append('agentId', agent?.id || 'anonymous');
+        formData.append('conversationId', convId || `session-${Date.now()}`);
+        formData.append('knowledgeContext', '');
         formData.append('timestamp', new Date().toISOString());
-        
+
         attachments.forEach((file, index) => {
           formData.append(`file_${index}`, file);
         });
@@ -381,25 +409,46 @@ export const AIChat: React.FC = () => {
           body: formData,
         });
 
+        if (!response.ok) {
+          throw new Error(`Webhook returned ${response.status}`);
+        }
+
         const resData = await response.json();
-        aiResponse = typeof resData === 'string' ? resData : resData.output || resData.reply || "Transmission received.";
+        aiResponse =
+          typeof resData === 'string'
+            ? resData
+            : resData.output || resData.reply || resData.message || resData.text || 'Transmission received.';
       }
 
-      const { data: savedAiMsg } = await supabase
-        .from('ai_messages')
-        .insert({ conversation_id: convId, role: 'ai', content: aiResponse })
-        .select().single();
-
-      if (savedAiMsg) {
-        setMessages(prev => [...prev, savedAiMsg]);
-        await supabase.from('ai_conversations').update({ last_message_at: new Date().toISOString() }).eq('id', convId);
+      // Persist AI response to Supabase — non-blocking
+      if (agent?.id && convId) {
+        try {
+          await supabase
+            .from('ai_messages')
+            .insert({ conversation_id: convId, role: 'ai', content: aiResponse });
+          await supabase
+            .from('ai_conversations')
+            .update({ last_message_at: new Date().toISOString() })
+            .eq('id', convId);
+        } catch (dbErr) {
+          console.warn('[AIXOS] Could not save AI response to Supabase:', dbErr);
+        }
       }
+
+      const aiMsg: ChatMessage = {
+        id: `ai-${Date.now()}`,
+        role: 'ai',
+        content: aiResponse,
+        created_at: new Date().toISOString(),
+      };
+      setMessages(prev => [...prev, aiMsg]);
+
+      if (agent?.id) fetchConversations();
     } catch (err: any) {
-      console.error(err);
-      setError("Cognitive link unstable. Verify network integrity.");
+      console.error('[AIXOS] Send error:', err);
+      setError('Cognitive link unstable. Verify network integrity.');
     } finally {
       setIsTyping(false);
-      fetchConversations();
     }
   };
 
@@ -480,7 +529,7 @@ export const AIChat: React.FC = () => {
               <Sparkles className="w-10 h-10 md:w-12 md:h-12 text-white" />
             </div>
             <h1 className="text-4xl md:text-6xl font-display font-bold text-brand-text mb-4 md:mb-6">
-              Welcome, <span className="text-primary-600">{agent?.name}</span>
+              Welcome, <span className="text-primary-600">{agent?.name || 'Operator'}</span>
             </h1>
             <p className="text-brand-muted text-lg md:text-xl max-w-lg leading-relaxed mb-8 md:mb-12 font-medium opacity-80">
               AIXOS is powered by Tradmak Intelligence. What shall we optimize or automate today?
@@ -495,7 +544,7 @@ export const AIChat: React.FC = () => {
               ].map((suggestion) => (
                 <button
                   key={suggestion}
-                  onClick={() => { setInput(suggestion); handleSendMessage(); }}
+                  onClick={() => { setInput(suggestion); }}
                   className="glass-card p-5 md:p-6 text-left group hover:border-primary-600 transition-all rounded-[1.5rem]"
                 >
                   <div className="flex justify-between items-center">
@@ -665,7 +714,7 @@ export const AIChat: React.FC = () => {
                 disabled={(!input.trim() && attachments.length === 0) || isTyping}
                 className="w-10 h-10 md:w-14 md:h-14 bg-primary-600 hover:bg-primary-500 disabled:opacity-50 text-white rounded-full flex items-center justify-center transition-all shadow-xl shadow-primary-900/30 active:scale-90"
               >
-                <Send className="w-5 h-5 md:w-6 md:h-6" />
+                {isTyping ? <Loader2 className="w-5 h-5 md:w-6 md:h-6 animate-spin" /> : <Send className="w-5 h-5 md:w-6 md:h-6" />}
               </button>
             </div>
           </form>
