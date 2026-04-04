@@ -15,6 +15,7 @@ import { SettingsPage } from './pages/Settings.tsx';
 import { ResourcesPage } from './pages/Resources.tsx';
 import { DeepResearchPage } from './pages/DeepResearch.tsx';
 import { ChatbotMonitor } from './pages/ChatbotMonitor.tsx';
+import { TradmakDemoPage } from './pages/TradmakDemo.tsx';
 import { supabase } from './services/supabase.ts';
 import { useStore } from './store/useStore.ts';
 import { Loader2, Menu, Sparkles } from 'lucide-react';
@@ -116,6 +117,7 @@ const App: React.FC = () => {
                         <Route path="/emails" element={<EmailsPage />} />
                         <Route path="/channels" element={<Channels />} />
                         <Route path="/chatbot-logs" element={<ChatbotMonitor />} />
+                        <Route path="/tradmak-demo" element={<TradmakDemoPage />} />
                         <Route path="/inquiries" element={<Inquiries />} />
                         <Route path="/contacts" element={<AuthGuard requireAdmin><ContactsPage /></AuthGuard>} />
                         <Route path="/analytics" element={<AuthGuard requireAdmin><AnalyticsPage /></AuthGuard>} />

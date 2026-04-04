@@ -16,7 +16,8 @@ import {
   Mail,
   X,
   Database,
-  Lock
+  Lock,
+  FlaskConical
 } from 'lucide-react';
 // @ts-ignore
 import { Link, useLocation, useNavigate } from 'react-router-dom';
@@ -36,6 +37,7 @@ export const Sidebar: React.FC = () => {
     { icon: Hash, label: 'Team Hub', path: '/channels' },
     { icon: Terminal, label: 'Chatbot Logs', path: '/chatbot-logs' },
     { icon: Inbox, label: 'Lead Inquiries', path: '/inquiries' },
+    { icon: FlaskConical, label: 'Tradmak Demo', path: '/tradmak-demo' },
   ];
 
   // Locked items (The rest)
