@@ -12,7 +12,7 @@ export const aiService = {
     knowledgeBase: Article[],
     contact: Contact
   ): Promise<string> {
-    const ai = new GoogleGenAI({  apiKey: import.meta.env.VITE_API_KEY });
+    const ai = new GoogleGenAI({  apiKey: import.meta.env.VITE_GEMINI_API_KEY });
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
       contents: `User said: "${messageContent}"`,
@@ -35,7 +35,7 @@ export const aiService = {
     context: any,
     agentName: string
   ): Promise<string> {
-    const ai = new GoogleGenAI({  apiKey: import.meta.env.VITE_API_KEY });
+    const ai = new GoogleGenAI({  apiKey: import.meta.env.VITE_GEMINI_API_KEY });
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
       contents: `Internal System Query: "${query}"`,
@@ -43,33 +43,27 @@ export const aiService = {
         systemInstruction: `You are the AIXOS Intelligence Core. Your purpose is to audit CRM data and provide intelligence to the operator.
 
         CRITICAL OUTPUT RULES:
-        1. DO NOT USE ASTERISKS (*) or DOUBLE ASTERISKS (**). DO NOT BOLD ANY TEXT.
-        2. DO NOT USE HASH SYMBOLS (#). NO MARKDOWN HEADERS.
-        3. Use natural language for summaries and identity answers. 
-        4. ONLY use Markdown TABLES (using | and -) for comparing metrics or listing counts.
-        5. ANSWER CONCISELY. Maximum 3 sentences for explanations.
-
-        IDENTITY & CONVERSATION CAPABILITIES:
-        - Identify specific people from 'chatbotTraces' or 'recentInquiries' using their REAL names.
-        - Summarize conversations naturally by analyzing 'user:-' and 'bot:-' strings in the conversation field.
-        - If someone asks "Who is [Name]?", state who they are and summarize their last session.
+        1. Keep responses clean and professional. 
+        2. Use natural language for summaries.
+        3. ONLY use Markdown TABLES (using | and -) for listing specific records, comparing metrics, or detailed data breakdowns.
+        4. ANSWER CONCISELY. Maximum 3-4 sentences for explanations unless a detailed data breakdown is requested.
+        5. For tables, ensure columns include relevant fields (e.g., Name, Status, Date, Amount).
 
         REAL_TIME_SYSTEM_DATA:
-        - Operational Counts: ${JSON.stringify(context.counts)}
-        - Chatbot Traces (Recent): ${JSON.stringify(context.chatbotTraces)}
-        - Recent Lead Inquiries: ${JSON.stringify(context.recentInquiries)}
+        - Operational Context: ${JSON.stringify(context.counts || {})}
+        - Record Traces (Recent): ${JSON.stringify(context.chatbotTraces || [])}
+        - Recent Lead Inquiries: ${JSON.stringify(context.recentInquiries || [])}
+        - Full Data Dump (Filtered): ${JSON.stringify(context.fullData?.slice(0, 50) || [])}
         
         Current Operator: ${agentName}`,
       }
     });
     
-    let text = response.text || "Neural link stable, but no data retrieved.";
-    // Hard-strip any remaining markdown formatting symbols to ensure compliance
-    return text.replace(/[*#]/g, '');
+    return response.text || "Neural link stable, but no data retrieved.";
   },
 
   async analyzeSentiment(messages: Message[]) {
-    const ai = new GoogleGenAI({  apiKey: import.meta.env.VITE_API_KEY });
+    const ai = new GoogleGenAI({  apiKey: import.meta.env.VITE_GEMINI_API_KEY });
     const text = messages.map(m => m.content).join(' ');
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
