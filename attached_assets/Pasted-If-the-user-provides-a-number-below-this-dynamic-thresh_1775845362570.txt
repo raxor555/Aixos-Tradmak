@@ -1,0 +1,32 @@
+If the user provides a number below this dynamic threshold, warn them and ask if they want to adjust.
+Once the quantity is confirmed, draft a professional email subject and body dynamically using the supply_item and arrival_time values pulled from the database, along with the user's requested quantity.
+Display the Subject and Body to the user and ask: "Do you approve this email? Reply 'yes' to send."
+Do NOT proceed until the user explicitly replies "yes".
+Webhook Execution:
+Upon user approval, immediately trigger a POST request to:
+https://n8n.srv1040836.hstgr.cloud/webhook/supplier-email
+
+Send exactly this JSON payload structure, dynamically populating the email, subject, and body:
+
+
+{
+  "email": "dynamically_fetched_supplier_email",
+  "subject": "your_approved_subject",
+  "body": "your_approved_body"
+}
+
+Success Animation:
+Immediately after successfully triggering the webhook, output this exact HTML block to display the success animation, followed only by a brief "The supplier has been contacted successfully!" text:
+
+<div style="display: flex; flex-direction: column; align-items: center; justify-content: center; margin: 20px 0; font-family: system-ui, -apple-system, sans-serif;">
+  <svg width="60" height="60" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="animation: popIn 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;">
+    <path d="M22 2L11 13" style="stroke-dasharray: 20; stroke-dashoffset: 20; animation: draw 0.5s 0.3s forwards;"></path>
+    <path d="M22 2L15 22L11 13L2 9L22 2Z" style="stroke-dasharray: 60; stroke-dashoffset: 60; animation: draw 0.8s 0.1s forwards;"></path>
+  </svg>
+  <p style="color: #10b981; font-weight: 600; margin-top: 15px; opacity: 0; animation: fadeUp 0.4s 0.8s forwards;">Email Sent Successfully!</p>
+  <style>
+    @keyframes popIn { 0% { transform: scale(0); } 100% { transform: scale(1); } }
+    @keyframes draw { to { stroke-dashoffset: 0; } }
+    @keyframes fadeUp { to { opacity: 1; transform: translateY(-5px); } }
+  </style>
+</div>

@@ -57,6 +57,7 @@ export const TradmakDemoPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [pendingEmail, setPendingEmail] = useState<{ email: string; subject: string; body: string } | null>(null);
 
   useEffect(() => {
     fetchData();
@@ -197,8 +198,47 @@ export const TradmakDemoPage: React.FC = () => {
     };
     setMessages(prev => [...prev, userMsg]);
 
+    // ── Email approval interception ──────────────────────────────────────
+    if (pendingEmail && text.toLowerCase().trim() === 'yes') {
+      try {
+        const res = await fetch('https://n8n.srv1040836.hstgr.cloud/webhook/supplier-email', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: pendingEmail.email,
+            subject: pendingEmail.subject,
+            body: pendingEmail.body,
+          }),
+        });
+        const success = res.ok;
+        setPendingEmail(null);
+        setMessages(prev => [...prev, {
+          id: `ai-${Date.now()}`,
+          role: 'ai',
+          content: success
+            ? '[SUCCESS_ANIMATION]The supplier has been contacted successfully!'
+            : 'The webhook returned an error. Please check the n8n workflow and try again.',
+          created_at: new Date().toISOString(),
+        }]);
+      } catch (webhookErr: any) {
+        console.error('[ElectricalAI] Webhook error:', webhookErr);
+        setPendingEmail(null);
+        setMessages(prev => [...prev, {
+          id: `ai-${Date.now()}`,
+          role: 'ai',
+          content: 'Failed to reach the email webhook. Please check your n8n server and try again.',
+          created_at: new Date().toISOString(),
+        }]);
+      }
+      setIsTyping(false);
+      return;
+    }
+
+    // Clear pending email if user asked a new question instead of approving
+    if (pendingEmail) setPendingEmail(null);
+
     try {
-      // Fetch both tables in parallel
+      // Fetch all three tables in parallel
       const [
         { data: freshLeads, error: leadsError },
         { data: freshStock, error: stockError },
@@ -292,10 +332,27 @@ INSTRUCTIONS:
 - "leads" or "inquiries" → DATABASE 1.
 - "stock", "inventory", "quantity", "how many in stock", "items low" → DATABASE 2. Parse quantity as a number for comparisons (e.g. "less than 4" means quantity < 4).
 - "supplier", "order", "restock", "who supplies", "contact supplier", "arrival time" → DATABASE 3. Provide the supplier name, email, phone, the item they supply, and arrival/lead time.
-- If stock is low and the user wants to order, find the matching supplier in DATABASE 3 by matching supply_item to the material/item name and give their contact details.
+- If stock is low and the user wants to order, find the matching supplier from DATABASE 3 and give their contact details.
 - Show multiple results as a Markdown table with | separators.
 - Do not use ** bold or # headers.
-- Be specific — always include names, quantities, contact details, and dates from the matched records.`;
+- Be specific — always include names, quantities, contact details, and dates from the matched records.
+
+EMAIL DRAFTING RULES (when user asks to email, contact, or send a message to a supplier):
+1. Look up the supplier in DATABASE 3, get their email address.
+2. Draft a professional email with a clear subject and body based on the user's request.
+3. Present the draft like this (plain text, no bold):
+
+To: [supplier email]
+Subject: [your subject]
+Body:
+[your email body]
+
+Do you approve this email? Reply "yes" to send.
+
+4. At the very END of your reply (after the approval question), append this exact hidden marker on its own line:
+[EMAIL_DRAFT]{"email":"supplier_email","subject":"your_subject","body":"your_body"}[/EMAIL_DRAFT]
+
+5. Do NOT proceed to send until the user replies "yes".`;
 
       const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
       if (!apiKey) {
@@ -313,6 +370,19 @@ INSTRUCTIONS:
 
       let reply = response.text || 'I could not generate a response. Please try again.';
       reply = reply.replace(/\*\*/g, '').replace(/^#+\s/gm, '');
+
+      // Parse and extract [EMAIL_DRAFT] marker if present
+      const draftMatch = reply.match(/\[EMAIL_DRAFT\]([\s\S]*?)\[\/EMAIL_DRAFT\]/);
+      if (draftMatch) {
+        try {
+          const draft = JSON.parse(draftMatch[1].trim());
+          setPendingEmail({ email: draft.email, subject: draft.subject, body: draft.body });
+        } catch (parseErr) {
+          console.warn('[ElectricalAI] Could not parse email draft JSON:', parseErr);
+        }
+        // Remove the marker from the displayed message
+        reply = reply.replace(/\[EMAIL_DRAFT\][\s\S]*?\[\/EMAIL_DRAFT\]/g, '').trim();
+      }
 
       setMessages(prev => [...prev, {
         id: `ai-${Date.now()}`,
@@ -721,6 +791,26 @@ INSTRUCTIONS:
                      {error && (
                        <div className="mb-4 p-4 bg-red-50 border border-red-100 rounded-2xl flex items-center gap-3 text-red-600 text-xs font-bold animate-shake shadow-sm">
                           <AlertCircle className="w-4 h-4" /> {error}
+                       </div>
+                     )}
+                     {pendingEmail && (
+                       <div className="mb-4 p-4 bg-amber-50 border border-amber-200 rounded-2xl shadow-sm">
+                         <div className="flex items-start justify-between gap-3">
+                           <div className="flex-1 min-w-0">
+                             <p className="text-[10px] font-black text-amber-600 uppercase tracking-widest mb-1">Email Pending Approval</p>
+                             <p className="text-xs font-semibold text-amber-900 truncate">To: {pendingEmail.email}</p>
+                             <p className="text-xs text-amber-800 truncate">Subject: {pendingEmail.subject}</p>
+                           </div>
+                           <button
+                             type="button"
+                             onClick={() => setPendingEmail(null)}
+                             className="text-amber-400 hover:text-amber-600 flex-shrink-0 mt-0.5"
+                             title="Cancel email"
+                           >
+                             <X className="w-4 h-4" />
+                           </button>
+                         </div>
+                         <p className="text-[10px] text-amber-700 mt-2 font-medium">Type <span className="font-black">"yes"</span> to send this email, or ask a new question to cancel.</p>
                        </div>
                      )}
                      <form onSubmit={handleSendMessage} className="flex gap-4 items-end">
