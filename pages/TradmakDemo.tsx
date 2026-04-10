@@ -198,45 +198,68 @@ export const TradmakDemoPage: React.FC = () => {
     setMessages(prev => [...prev, userMsg]);
 
     try {
-      // Always fetch fresh data so Gemini has the latest records
-      const { data: freshRecords } = await supabase
+      // Fetch fresh data directly — don't rely on component state
+      const { data: freshRecords, error: fetchError } = await supabase
         .from('electrical_chatbot_conversation')
         .select('*')
         .order('created_at', { ascending: false });
 
-      const records = freshRecords || data;
+      if (fetchError) {
+        console.error('[ElectricalAI] Supabase fetch error:', fetchError);
+      }
 
-      // Build a structured, comprehensive data context
+      const records: any[] = freshRecords && freshRecords.length > 0
+        ? freshRecords
+        : (data.length > 0 ? data : []);
+
+      console.log(`[ElectricalAI] Records available for AI: ${records.length}`);
+
+      if (records.length === 0) {
+        setMessages(prev => [...prev, {
+          id: `ai-${Date.now()}`,
+          role: 'ai',
+          content: 'No records were found in the electrical_chatbot_conversation table. Please check that the Supabase table has data and the connection is authenticated.',
+          created_at: new Date().toISOString(),
+        }]);
+        setIsTyping(false);
+        return;
+      }
+
       const todayStr = new Date().toISOString().split('T')[0];
       const todayCount = records.filter((r: any) => r.created_at?.startsWith(todayStr)).length;
-      const ordersCount = records.filter((r: any) => r.order && r.order.trim()).length;
+      const ordersCount = records.filter((r: any) => r.order && String(r.order).trim()).length;
       const totalRev = records.reduce((s: number, r: any) => s + (parseFloat(r.total_amount) || 0), 0);
 
-      // Compress records to minimise token usage — use short keys, no whitespace
-      const allRecords = records.slice(0, 150).map((r: any) => ({
-        id: r.Unique_id || r.session_id,
-        n: r.name || '',
-        ph: r.number || '',
-        em: r.user_email || '',
-        ord: r.order || '',
-        amt: r.total_amount ?? '',
-        dt: r.created_at ? r.created_at.split('T')[0] : '',
-        conv: r.conversation ? r.conversation.substring(0, 120) : '',
+      // Use clear readable field names so Gemini understands the data
+      const allRecords = records.slice(0, 100).map((r: any) => ({
+        unique_id: r.Unique_id || '',
+        session_id: r.session_id || '',
+        name: r.name || 'Unknown',
+        phone: r.number || '',
+        email: r.user_email || '',
+        order_details: r.order || '',
+        total_amount: r.total_amount ?? null,
+        date: r.created_at ? r.created_at.split('T')[0] : '',
+        conversation: r.conversation ? String(r.conversation).substring(0, 150) : '',
       }));
 
-      const systemPrompt = `You are the Tradmak Electrical Intelligence Assistant. Answer ONLY using the DATABASE_RECORDS below — never use external knowledge.
+      const systemPrompt = `You are the Tradmak Electrical Intelligence Assistant. You have access to the full database of customer leads and inquiries from the electrical_chatbot_conversation table.
 
-Field key: id=unique_id, n=name, ph=phone, em=email, ord=order_details, amt=total_amount, dt=date, conv=conversation_excerpt
+DATABASE SUMMARY:
+- Total leads/inquiries: ${records.length}
+- Today's inquiries (${todayStr}): ${todayCount}
+- Leads with order details: ${ordersCount}
+- Total revenue (sum of total_amount): ${totalRev.toFixed(2)}
 
-RULES:
-- Filter on amt for numeric queries (e.g. "less than 4" → find rows where amt<4).
-- List results as a Markdown table (| col | col |) when showing multiple rows.
-- No ** bold, no # headers.
-- If data is absent, say "Not found in Tradmak Electrical database."
+INSTRUCTIONS:
+- Answer ONLY using the DATA below. Never use outside knowledge.
+- "leads" and "inquiries" refer to the records in this database.
+- "stock" or "total_amount" refers to the total_amount field — filter numerically when asked (e.g. "less than 4" means total_amount < 4).
+- Show multiple results as a Markdown table with | separators.
+- Do not use ** bold or # headers.
+- Be specific — include names, amounts, and dates from the records.
 
-SUMMARY: total=${records.length}, today(${todayStr})=${todayCount}, with_orders=${ordersCount}, revenue_sum=${totalRev.toFixed(2)}
-
-RECORDS:
+DATA (${allRecords.length} records):
 ${JSON.stringify(allRecords)}`;
 
       const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
@@ -249,12 +272,11 @@ ${JSON.stringify(allRecords)}`;
 
       const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
-        contents: `Question: ${text}`,
+        contents: `User question: ${text}`,
         config: { systemInstruction: systemPrompt },
       });
 
-      let reply = response.text || 'No data found matching your query.';
-      // Strip any residual markdown bold/header symbols
+      let reply = response.text || 'I could not generate a response. Please try again.';
       reply = reply.replace(/\*\*/g, '').replace(/^#+\s/gm, '');
 
       setMessages(prev => [...prev, {
@@ -265,7 +287,10 @@ ${JSON.stringify(allRecords)}`;
       }]);
     } catch (err: any) {
       console.error('[ElectricalAI] Error:', err);
-      setError(err.message || 'Intelligence core timeout. Please retry.');
+      const msg = err?.message?.includes('quota') || err?.status === 429
+        ? 'API quota exceeded. Please wait a moment and try again.'
+        : (err.message || 'Connection error. Please retry.');
+      setError(msg);
     } finally {
       setIsTyping(false);
     }
