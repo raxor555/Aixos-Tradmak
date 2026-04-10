@@ -354,8 +354,11 @@ export const AIChat: React.FC = () => {
             { count: channelsCount },
             { count: messagesCount },
             { count: emailsCount },
+            { count: electricalCount },
             { data: chatbotTraces },
-            { data: recentInquiries }
+            { data: recentInquiries },
+            { data: electricalTraces },
+            { data: stockInventory }
           ] = await Promise.all([
             supabase.from('contacts').select('*', { count: 'exact', head: true }),
             supabase.from('conversations').select('*', { count: 'exact', head: true }),
@@ -366,8 +369,11 @@ export const AIChat: React.FC = () => {
             supabase.from('internal_channels').select('*', { count: 'exact', head: true }),
             supabase.from('messages').select('*', { count: 'exact', head: true }),
             supabase.from('emails').select('*', { count: 'exact', head: true }),
+            supabase.from('electrical_chatbot_conversation').select('*', { count: 'exact', head: true }),
             supabase.from('chatbot_conversation').select('id, name, email, conversation, created_at, session_id').order('created_at', { ascending: false }).limit(15),
-            supabase.from('inquiries').select('name, email, message, created_at').order('created_at', { ascending: false }).limit(5)
+            supabase.from('inquiries').select('name, email, message, created_at').order('created_at', { ascending: false }).limit(5),
+            supabase.from('electrical_chatbot_conversation').select('id, name, number, "order", total_amount, created_at').order('created_at', { ascending: false }).limit(15),
+            supabase.from('electrical_stock_sheet').select('*')
           ]);
 
           const metrics = {
@@ -380,10 +386,13 @@ export const AIChat: React.FC = () => {
               chatbotConversations: chatbotCount || 0,
               strategicChannels: channelsCount || 0,
               globalMessages: messagesCount || 0,
-              emailsDispatched: emailsCount || 0
+              emailsDispatched: emailsCount || 0,
+              electricalInquiries: electricalCount || 0
             },
             chatbotTraces: chatbotTraces || [],
-            recentInquiries: recentInquiries || []
+            recentInquiries: recentInquiries || [],
+            electricalTraces: electricalTraces || [],
+            stockInventory: stockInventory || []
           };
 
           aiResponse = await aiService.queryDashboard(userText, metrics, agent.name);

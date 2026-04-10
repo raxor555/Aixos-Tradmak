@@ -20,7 +20,8 @@ import {
   Clock,
   MessageSquare,
   ChevronRight,
-  RefreshCw
+  RefreshCw,
+  X
 } from 'lucide-react';
 import {
   AreaChart,
@@ -44,6 +45,14 @@ export const TradmakDemoPage: React.FC = () => {
   const [data, setData] = useState<any[]>([]);
   const [loadingData, setLoadingData] = useState(true);
   const [activeTab, setActiveTab] = useState<'overview' | 'inquiries' | 'today' | 'assistant'>('overview');
+  const [selectedInquiry, setSelectedInquiry] = useState<any>(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [stockData, setStockData] = useState<any[]>([]);
+  const [supplierData, setSupplierData] = useState<any[]>([]);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editForm, setEditForm] = useState({ order: '', amount: '' });
+  const [updating, setUpdating] = useState(false);
+  const [emailDraft, setEmailDraft] = useState<{email: string, subject: string, body: string} | null>(null);
   
   // Chat state
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -66,18 +75,81 @@ export const TradmakDemoPage: React.FC = () => {
   const fetchData = async () => {
     setLoadingData(true);
     try {
-      const { data: records, error } = await supabase
-        .from('electrical_chatbot_conversation')
-        .select('*')
-        .order('created_at', { ascending: false });
+      const [{ data: records }, { data: stock }, { data: suppliers }] = await Promise.all([
+        supabase
+          .from('electrical_chatbot_conversation')
+          .select('*')
+          .order('created_at', { ascending: false }),
+        supabase
+          .from('electrical_stock_sheet')
+          .select('*'),
+        supabase
+          .from('electrical_stock_supplier')
+          .select('*')
+      ]);
         
-      if (error) throw error;
       setData(records || []);
+      setStockData(stock || []);
+      setSupplierData(suppliers || []);
     } catch (err) {
       console.error('Error fetching data:', err);
       setError('Data retrieval failed. Please check connection.');
     } finally {
       setLoadingData(false);
+    }
+  };
+
+  const parseConversation = (conv: string) => {
+    if (!conv) return [];
+    // Basic parser for "User: text\nBot: text" or similar formats
+    const lines = conv.split('\n');
+    return lines.map(line => {
+      const match = line.match(/^(User|Bot|Assistant|AI|Operator):\s*(.*)/i);
+      if (match) {
+        return {
+          role: match[1].toLowerCase() === 'user' ? 'user' : 'ai',
+          content: match[2].trim()
+        };
+      }
+      return { role: 'ai', content: line.trim() };
+    }).filter(msg => msg.content);
+  };
+
+  const handleUpdateOrder = async () => {
+    if (!selectedInquiry) return;
+    setUpdating(true);
+    try {
+      const payload = {
+        ...selectedInquiry,
+        updated_order: editForm.order,
+        modified_at: new Date().toISOString()
+      };
+
+      const response = await fetch('https://n8n.srv1040836.hstgr.cloud/webhook/updated-changes-pdf', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      if (!response.ok) throw new Error('Webhook rejected update');
+      
+      // Update local state to reflect UI change (optional but good for UX)
+      setData(prev => prev.map(item => 
+        item.id === selectedInquiry.id 
+          ? { ...item, order: editForm.order, total_amount: parseFloat(editForm.amount) } 
+          : item
+      ));
+      
+      setIsEditing(false);
+      setSelectedInquiry((prev: any) => ({ ...prev, order: editForm.order, total_amount: parseFloat(editForm.amount) }));
+      
+      // Refresh data
+      fetchData();
+    } catch (err) {
+      console.error('Update error:', err);
+      setError('Failed to sync modifications to server.');
+    } finally {
+      setUpdating(false);
     }
   };
 
@@ -132,6 +204,31 @@ export const TradmakDemoPage: React.FC = () => {
     };
     setMessages(prev => [...prev, userMsg]);
 
+    if (text.toLowerCase() === 'yes' && emailDraft) {
+      try {
+        await fetch('https://n8n.srv1040836.hstgr.cloud/webhook/supplier-email', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(emailDraft)
+        });
+
+        const successMsg: ChatMessage = {
+          id: `ai-${Date.now()}`,
+          role: 'ai',
+          content: '[SUCCESS_ANIMATION]',
+          created_at: new Date().toISOString(),
+        };
+        setEmailDraft(null);
+        setMessages(prev => [...prev, successMsg]);
+      } catch (err) {
+        console.error('Webhook error:', err);
+        setMessages(prev => [...prev, { id: `ai-${Date.now()}`, role: 'ai', content: 'Failed to contact supplier. Please try again.', created_at: new Date().toISOString() }]);
+      } finally {
+        setIsTyping(false);
+      }
+      return;
+    }
+
     try {
       const context = {
         counts: {
@@ -152,15 +249,34 @@ export const TradmakDemoPage: React.FC = () => {
           order: r.order,
           amount: r.total_amount,
           date: r.created_at
-        }))
+        })),
+        stockInventory: stockData.map(s => ({
+          material: s.material,
+          size: s.size,
+          specs: `${s.insulation}/${s.sheath} ${s.armour} ${s.cores}core`,
+          quantity: `${s.quantity} ${s.unit}`,
+          voltage: s.voltage
+        })),
+        stockSuppliers: supplierData
       };
 
-      const aiResponse = await aiService.queryDashboard(text, context, agent?.name || 'Operator');
+      let aiResponseText = await aiService.queryDashboard(text, context, agent?.name || 'Operator');
+      
+      const draftMatch = aiResponseText.match(/\[EMAIL_DRAFT\]([\s\S]*?)\[\/EMAIL_DRAFT\]/);
+      if (draftMatch) {
+        try {
+          const draft = JSON.parse(draftMatch[1].trim());
+          setEmailDraft(draft);
+          aiResponseText = aiResponseText.replace(/\[EMAIL_DRAFT\][\s\S]*?\[\/EMAIL_DRAFT\]/, '').trim();
+        } catch (e) {
+          console.error('JSON parse error on draft', e);
+        }
+      }
       
       const aiMsg: ChatMessage = {
         id: `ai-${Date.now()}`,
         role: 'ai',
-        content: aiResponse,
+        content: aiResponseText,
         created_at: new Date().toISOString(),
       };
       setMessages(prev => [...prev, aiMsg]);
@@ -173,6 +289,31 @@ export const TradmakDemoPage: React.FC = () => {
   };
 
   const renderMessageContent = (content: string) => {
+    if (content.includes('[SUCCESS_ANIMATION]')) {
+      const parts = content.split('[SUCCESS_ANIMATION]');
+      return (
+        <div>
+          {parts[0]}
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', margin: '20px 0', fontFamily: 'system-ui, -apple-system, sans-serif' }}>
+            <svg width="60" height="60" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ animation: 'popIn 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards' }}>
+              <path d="M22 2L11 13" style={{ strokeDasharray: 20, strokeDashoffset: 20, animation: 'draw 0.5s 0.3s forwards' }} />
+              <path d="M22 2L15 22L11 13L2 9L22 2Z" style={{ strokeDasharray: 60, strokeDashoffset: 60, animation: 'draw 0.8s 0.1s forwards' }} />
+            </svg>
+            <p style={{ color: '#10b981', fontWeight: 600, marginTop: '15px', opacity: 0, animation: 'fadeUp 0.4s 0.8s forwards' }}>Email Sent Successfully!</p>
+            <style>
+              {`
+                @keyframes popIn { 0% { transform: scale(0); } 100% { transform: scale(1); } }
+                @keyframes draw { to { stroke-dashoffset: 0; } }
+                @keyframes fadeUp { to { opacity: 1; transform: translateY(-5px); } }
+              `}
+            </style>
+          </div>
+          <p className="mt-2 text-sm text-zinc-800 text-center">The supplier has been contacted successfully!</p>
+          {parts[1]}
+        </div>
+      );
+    }
+
     if (!content.includes('|')) return <div className="text-sm leading-relaxed whitespace-pre-wrap">{content}</div>;
 
     const lines = content.split('\n');
@@ -395,16 +536,27 @@ export const TradmakDemoPage: React.FC = () => {
                   </thead>
                   <tbody>
                     {(activeTab === 'inquiries' ? filteredData : stats.todayRecords).map((r, i) => (
-                      <tr key={i} className="hover:bg-zinc-50/50 transition-colors border-b border-zinc-100 last:border-0">
+                      <tr 
+                        key={i} 
+                        onClick={() => { setSelectedInquiry(r); setIsModalOpen(true); }}
+                        className="hover:bg-zinc-50 border-b border-zinc-100 last:border-0 cursor-pointer active:bg-zinc-100 transition-all group"
+                      >
                         <td className="px-8 py-5">
                           <div className="flex items-center gap-3">
-                            <div className="w-9 h-9 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center font-bold text-sm">
+                            <div className="w-9 h-9 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center font-bold text-sm group-hover:bg-blue-600 group-hover:text-white transition-all">
                               {r.name?.[0] || 'L'}
                             </div>
-                            <div>
-                               <p className="text-sm font-bold text-zinc-900">{r.name || 'Anonymous'}</p>
-                               <p className="text-[11px] text-zinc-400 font-medium">{r.number || r.Unique_id?.substring(0, 10)}</p>
-                            </div>
+                             <div className="flex flex-col gap-1">
+                               <p className="text-sm font-bold text-zinc-900 group-hover:text-blue-600 transition-colors">{r.name || 'Anonymous'}</p>
+                               <div className="flex items-center gap-2">
+                                 <p className="text-[11px] text-zinc-400 font-medium">{r.number || r.Unique_id?.substring(0, 10)}</p>
+                                 {r.pdf_url && (
+                                   <div className="flex items-center gap-1 bg-red-50 text-red-600 px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-tighter border border-red-100">
+                                      <FileText className="w-2.5 h-2.5" /> PDF
+                                   </div>
+                                 )}
+                               </div>
+                             </div>
                           </div>
                         </td>
                         <td className="px-8 py-5">
@@ -559,6 +711,143 @@ export const TradmakDemoPage: React.FC = () => {
 
         </div>
       </main>
+
+      {/* INQUIRY DETAIL MODAL */}
+      {isModalOpen && selectedInquiry && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 md:p-8 animate-fade-in">
+          <div className="absolute inset-0 bg-white/80 backdrop-blur-xl" onClick={() => setIsModalOpen(false)} />
+          <div className="relative bg-white border border-zinc-200 w-full max-w-4xl max-h-[90vh] rounded-[2.5rem] shadow-2xl flex flex-col overflow-hidden animate-slide-up">
+            <div className="px-8 py-6 border-b border-zinc-100 flex items-center justify-between bg-zinc-50/50">
+               <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 rounded-2xl bg-blue-600 flex items-center justify-center text-white shadow-lg shadow-blue-600/20">
+                     <FileText className="w-6 h-6" />
+                  </div>
+                  <div>
+                     <h3 className="font-bold text-lg text-zinc-900">{selectedInquiry.name || 'Anonymous Lead'}</h3>
+                     <p className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest">{selectedInquiry.number || 'No Contact ID'}</p>
+                  </div>
+               </div>
+               <button 
+                 onClick={() => setIsModalOpen(false)}
+                 className="w-10 h-10 rounded-full hover:bg-zinc-100 flex items-center justify-center text-zinc-400 hover:text-zinc-900 transition-all"
+               >
+                  <X className="w-5 h-5" />
+               </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-8 space-y-8 custom-scrollbar bg-white">
+                {isEditing ? (
+                  <div className="space-y-6 animate-fade-in">
+                     <div className="p-6 bg-zinc-50 border border-zinc-200 rounded-3xl space-y-4">
+                        <label className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">Modified Inquiry Information</label>
+                        <textarea 
+                           value={editForm.order}
+                           onChange={e => setEditForm(prev => ({ ...prev, order: e.target.value }))}
+                           className="w-full bg-white border border-zinc-200 rounded-2xl px-5 py-4 text-sm font-medium focus:outline-none focus:border-blue-600/50 min-h-[120px]"
+                           placeholder="Update order details..."
+                        />
+                        <div className="flex items-center gap-4">
+                           <button 
+                             onClick={handleUpdateOrder}
+                             disabled={updating}
+                             className="px-10 py-3 bg-blue-600 text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-blue-700 transition-all flex items-center gap-2"
+                           >
+                              {updating ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Confirm Changes'}
+                           </button>
+                           <button 
+                             onClick={() => setIsEditing(false)}
+                             className="px-6 py-3 bg-zinc-200 text-zinc-600 rounded-xl text-xs font-bold hover:bg-zinc-300 transition-all"
+                           >
+                              Cancel
+                           </button>
+                        </div>
+                     </div>
+                  </div>
+                ) : (
+                  parseConversation(selectedInquiry.conversation).length > 0 ? (
+                    parseConversation(selectedInquiry.conversation).map((msg: any, idx: number) => (
+                      <div key={idx} className={`flex gap-4 ${msg.role === 'ai' ? 'items-start' : 'flex-row-reverse items-start'}`}>
+                         <div className={`w-9 h-9 rounded-xl flex-shrink-0 flex items-center justify-center border shadow-sm ${
+                           msg.role === 'ai' ? 'bg-blue-600 text-white border-blue-700' : 'bg-white text-zinc-700 border-zinc-200'
+                         }`}>
+                            {msg.role === 'ai' ? <Bot className="w-4 h-4" /> : <User className="w-4 h-4" />}
+                         </div>
+                         <div className={`flex flex-col gap-1 max-w-[80%] ${msg.role === 'ai' ? 'items-start' : 'items-end'}`}>
+                            <div className={`px-5 py-3.5 rounded-2xl border shadow-sm text-sm leading-relaxed ${
+                              msg.role === 'ai' 
+                                ? 'bg-zinc-50 border-zinc-200 text-zinc-800 rounded-tl-none' 
+                                : 'bg-blue-600 text-white border-blue-700 rounded-tr-none'
+                            }`}>
+                               {msg.content}
+                            </div>
+                            <span className="text-[9px] font-bold text-zinc-400 uppercase tracking-widest px-2">
+                              {msg.role === 'ai' ? 'Tradmak AI' : 'Inquirer'}
+                            </span>
+                         </div>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="h-full flex flex-col items-center justify-center text-center opacity-40 py-20">
+                       <MessageSquare className="w-16 h-16 text-zinc-300 mb-4" />
+                       <p className="text-sm font-bold text-zinc-500 uppercase tracking-widest">No detailed transcript available</p>
+                       <p className="text-xs text-zinc-400 mt-2">Initial order: {selectedInquiry.order}</p>
+                    </div>
+                  )
+                )}
+            </div>
+
+            <div className="px-8 py-5 border-t border-zinc-100 bg-zinc-50/50 flex items-center justify-between">
+               <div className="flex items-center gap-6">
+                  {selectedInquiry.pdf_url && (
+                    <div className="flex items-center gap-2">
+                      <a 
+                        href={selectedInquiry.pdf_url} 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-3 p-3 bg-red-50 hover:bg-red-100 border border-red-100 rounded-2xl transition-all group/pdf"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                         <div className="w-10 h-10 rounded-xl bg-red-600 flex items-center justify-center text-white shadow-lg shadow-red-600/10 group-hover/pdf:scale-110 transition-transform">
+                            <FileText className="w-5 h-5" />
+                         </div>
+                         <div className="pr-2">
+                            <p className="text-[9px] font-black text-red-600 uppercase tracking-widest leading-none mb-1">Attached Document</p>
+                            <p className="text-xs font-bold text-red-900">Signed PDF File</p>
+                         </div>
+                      </a>
+                      <button 
+                         onClick={() => {
+                            setIsEditing(true);
+                            setEditForm({ order: selectedInquiry.order || '', amount: selectedInquiry.total_amount || '' });
+                         }}
+                         className="h-16 px-4 bg-zinc-900 hover:bg-zinc-800 text-white rounded-2xl flex flex-col items-center justify-center gap-1 transition-all group"
+                      >
+                         <Activity className="w-4 h-4 group-hover:scale-110 transition-transform" />
+                         <span className="text-[9px] font-black uppercase tracking-[0.2em]">Edit</span>
+                      </button>
+                    </div>
+                  )}
+                  <div className="w-px h-8 bg-zinc-200" />
+                  <div>
+                     <p className="text-[9px] font-black text-zinc-400 uppercase tracking-widest mb-0.5">Reference Magnitude</p>
+                     <p className="text-sm font-bold text-zinc-900">{selectedInquiry.total_amount ? `$${selectedInquiry.total_amount.toLocaleString()}` : 'Audit Pending'}</p>
+                  </div>
+                  <div className="w-px h-8 bg-zinc-200" />
+                  <div>
+                     <p className="text-[9px] font-black text-zinc-400 uppercase tracking-widest mb-0.5">Session Identity</p>
+                     <p className="text-sm font-bold text-blue-600 uppercase tracking-tight">{selectedInquiry.Unique_id?.substring(0, 12)}</p>
+                  </div>
+               </div>
+               <button 
+                 onClick={() => setIsModalOpen(false)}
+                 className="px-6 py-2.5 bg-zinc-900 text-white rounded-xl text-xs font-bold hover:bg-zinc-800 transition-all shadow-lg shadow-zinc-900/10 active:scale-95"
+               >
+                 Close Auditor
+               </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );
