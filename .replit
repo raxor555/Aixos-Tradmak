@@ -41,4 +41,4 @@ publicDir = "dist"
 [userenv]
 
 [userenv.shared]
-GEMINI_API_KEY = "AIzaSyCywgNP4Vg8BHe5YVMrHQT-mhBQxUZJbJg"
+GEMINI_API_KEY = ""
