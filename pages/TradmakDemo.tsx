@@ -202,6 +202,7 @@ export const TradmakDemoPage: React.FC = () => {
       const [
         { data: freshLeads, error: leadsError },
         { data: freshStock, error: stockError },
+        { data: freshSuppliers, error: suppliersError },
       ] = await Promise.all([
         supabase
           .from('electrical_chatbot_conversation')
@@ -210,18 +211,23 @@ export const TradmakDemoPage: React.FC = () => {
         supabase
           .from('electrical_stock_sheet')
           .select('material, size, insulation, sheath, armour, cores, diameter, voltage, quantity, unit'),
+        supabase
+          .from('electrical_stock_supplier')
+          .select('supplier_name, supply_item, arrival_time, quantity, email, phone_number'),
       ]);
 
       if (leadsError) console.error('[ElectricalAI] Leads fetch error:', leadsError);
       if (stockError) console.error('[ElectricalAI] Stock fetch error:', stockError);
+      if (suppliersError) console.error('[ElectricalAI] Suppliers fetch error:', suppliersError);
 
       const leads: any[] = freshLeads && freshLeads.length > 0
         ? freshLeads
         : (data.length > 0 ? data : []);
 
       const stockItems: any[] = freshStock || [];
+      const suppliers: any[] = freshSuppliers || [];
 
-      console.log(`[ElectricalAI] Leads: ${leads.length}, Stock items: ${stockItems.length}`);
+      console.log(`[ElectricalAI] Leads: ${leads.length}, Stock items: ${stockItems.length}, Suppliers: ${suppliers.length}`);
 
       const todayStr = new Date().toISOString().split('T')[0];
       const todayCount = leads.filter((r: any) => r.created_at?.startsWith(todayStr)).length;
@@ -252,7 +258,16 @@ export const TradmakDemoPage: React.FC = () => {
         unit: s.unit || '',
       }));
 
-      const systemPrompt = `You are the Tradmak Electrical Intelligence Assistant. You have access to two live databases.
+      const suppliersForAI = suppliers.map((s: any) => ({
+        supplier_name: s.supplier_name || '',
+        supply_item: s.supply_item || '',
+        arrival_time: s.arrival_time || '',
+        quantity: s.quantity || '',
+        email: s.email || '',
+        phone_number: s.phone_number || '',
+      }));
+
+      const systemPrompt = `You are the Tradmak Electrical Intelligence Assistant. You have access to three live databases.
 
 --- DATABASE 1: CUSTOMER LEADS (electrical_chatbot_conversation) ---
 Summary: total=${leads.length}, today(${todayStr})=${todayCount}, with_orders=${ordersCount}, total_revenue=${totalRev.toFixed(2)}
@@ -262,18 +277,25 @@ ${JSON.stringify(leadsForAI)}
 
 --- DATABASE 2: ELECTRICAL STOCK INVENTORY (electrical_stock_sheet) ---
 Summary: ${stockItems.length} items in inventory
-Fields: material, size, insulation, sheath, armour, cores, diameter, voltage, quantity (stored as text — parse as number for comparisons), unit
+Fields: material, size, insulation, sheath, armour, cores, diameter, voltage, quantity (text — parse as number for filtering), unit
 STOCK DATA:
 ${JSON.stringify(stockForAI)}
 
+--- DATABASE 3: SUPPLIERS (electrical_stock_supplier) ---
+Summary: ${suppliers.length} suppliers on record
+Fields: supplier_name, supply_item, arrival_time, quantity (minimum or available supply quantity), email, phone_number
+SUPPLIER DATA:
+${JSON.stringify(suppliersForAI)}
+
 INSTRUCTIONS:
 - Answer ONLY using the data above. Never use outside knowledge.
-- "leads" or "inquiries" → query DATABASE 1.
-- "stock", "inventory", "quantity", "items" → query DATABASE 2. The quantity field is text — treat it as a number when filtering (e.g. "less than 4" means parseFloat(quantity) < 4).
+- "leads" or "inquiries" → DATABASE 1.
+- "stock", "inventory", "quantity", "how many in stock", "items low" → DATABASE 2. Parse quantity as a number for comparisons (e.g. "less than 4" means quantity < 4).
+- "supplier", "order", "restock", "who supplies", "contact supplier", "arrival time" → DATABASE 3. Provide the supplier name, email, phone, the item they supply, and arrival/lead time.
+- If stock is low and the user wants to order, find the matching supplier in DATABASE 3 by matching supply_item to the material/item name and give their contact details.
 - Show multiple results as a Markdown table with | separators.
 - Do not use ** bold or # headers.
-- Be specific — always include the relevant field values from the matched records.
-- If a question spans both databases (e.g. "leads who ordered items with low stock"), cross-reference both.`;
+- Be specific — always include names, quantities, contact details, and dates from the matched records.`;
 
       const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
       if (!apiKey) {
