@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { supabase } from '../services/supabase';
-import { aiService } from '../services/ai.service';
 import { useStore } from '../store/useStore';
 import { 
   Zap, 
@@ -47,12 +46,9 @@ export const TradmakDemoPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'overview' | 'inquiries' | 'today' | 'assistant'>('overview');
   const [selectedInquiry, setSelectedInquiry] = useState<any>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [stockData, setStockData] = useState<any[]>([]);
-  const [supplierData, setSupplierData] = useState<any[]>([]);
   const [isEditing, setIsEditing] = useState(false);
   const [editForm, setEditForm] = useState({ order: '', amount: '' });
   const [updating, setUpdating] = useState(false);
-  const [emailDraft, setEmailDraft] = useState<{email: string, subject: string, body: string} | null>(null);
   
   // Chat state
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -75,25 +71,16 @@ export const TradmakDemoPage: React.FC = () => {
   const fetchData = async () => {
     setLoadingData(true);
     try {
-      const [{ data: records }, { data: stock }, { data: suppliers }] = await Promise.all([
-        supabase
-          .from('electrical_chatbot_conversation')
-          .select('*')
-          .order('created_at', { ascending: false }),
-        supabase
-          .from('electrical_stock_sheet')
-          .select('*'),
-        supabase
-          .from('electrical_stock_supplier')
-          .select('*')
-      ]);
-        
+      const { data: records, error: fetchError } = await supabase
+        .from('electrical_chatbot_conversation')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (fetchError) throw fetchError;
       setData(records || []);
-      setStockData(stock || []);
-      setSupplierData(suppliers || []);
     } catch (err) {
       console.error('Error fetching data:', err);
-      setError('Data retrieval failed. Please check connection.');
+      setError('Data retrieval failed. Please check Supabase connection.');
     } finally {
       setLoadingData(false);
     }
@@ -166,7 +153,11 @@ export const TradmakDemoPage: React.FC = () => {
     const todayStr = new Date().toISOString().split('T')[0];
     const todayRecords = data.filter(r => r.created_at?.startsWith(todayStr));
     const orders = data.filter(r => r.order && r.order.trim().length > 0);
-    
+    const totalRevenue = data.reduce((sum, r) => {
+      const amt = parseFloat(r.total_amount);
+      return sum + (isNaN(amt) ? 0 : amt);
+    }, 0);
+
     const inqByDate: Record<string, number> = {};
     data.forEach(r => {
       if (!r.created_at) return;
@@ -183,6 +174,7 @@ export const TradmakDemoPage: React.FC = () => {
       total: data.length,
       today: todayRecords.length,
       orders: orders.length,
+      totalRevenue,
       todayRecords,
       chartData
     };
@@ -195,6 +187,7 @@ export const TradmakDemoPage: React.FC = () => {
 
     setInput('');
     setIsTyping(true);
+    setError(null);
 
     const userMsg: ChatMessage = {
       id: `user-${Date.now()}`,
@@ -204,85 +197,82 @@ export const TradmakDemoPage: React.FC = () => {
     };
     setMessages(prev => [...prev, userMsg]);
 
-    if (text.toLowerCase() === 'yes' && emailDraft) {
-      try {
-        await fetch('https://n8n.srv1040836.hstgr.cloud/webhook/supplier-email', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(emailDraft)
-        });
-
-        const successMsg: ChatMessage = {
-          id: `ai-${Date.now()}`,
-          role: 'ai',
-          content: '[SUCCESS_ANIMATION]',
-          created_at: new Date().toISOString(),
-        };
-        setEmailDraft(null);
-        setMessages(prev => [...prev, successMsg]);
-      } catch (err) {
-        console.error('Webhook error:', err);
-        setMessages(prev => [...prev, { id: `ai-${Date.now()}`, role: 'ai', content: 'Failed to contact supplier. Please try again.', created_at: new Date().toISOString() }]);
-      } finally {
-        setIsTyping(false);
-      }
-      return;
-    }
-
     try {
-      const context = {
-        counts: {
-          totalInquiries: stats.total,
-          todayInquiries: stats.today,
-          orders: stats.orders,
-        },
-        recentInquiries: data.slice(0, 15).map(r => ({
-          name: r.name || 'Anonymous',
-          message: r.order || 'Query',
-          amount: r.total_amount || 0,
-          date: r.created_at
-        })),
-        fullData: data.map(r => ({
-          id: r.Unique_id,
-          name: r.name,
-          phone: r.number,
-          order: r.order,
-          amount: r.total_amount,
-          date: r.created_at
-        })),
-        stockInventory: stockData.map(s => ({
-          material: s.material,
-          size: s.size,
-          specs: `${s.insulation}/${s.sheath} ${s.armour} ${s.cores}core`,
-          quantity: `${s.quantity} ${s.unit}`,
-          voltage: s.voltage
-        })),
-        stockSuppliers: supplierData
-      };
+      // Always fetch fresh data so Gemini has the latest records
+      const { data: freshRecords } = await supabase
+        .from('electrical_chatbot_conversation')
+        .select('*')
+        .order('created_at', { ascending: false });
 
-      let aiResponseText = await aiService.queryDashboard(text, context, agent?.name || 'Operator');
-      
-      const draftMatch = aiResponseText.match(/\[EMAIL_DRAFT\]([\s\S]*?)\[\/EMAIL_DRAFT\]/);
-      if (draftMatch) {
-        try {
-          const draft = JSON.parse(draftMatch[1].trim());
-          setEmailDraft(draft);
-          aiResponseText = aiResponseText.replace(/\[EMAIL_DRAFT\][\s\S]*?\[\/EMAIL_DRAFT\]/, '').trim();
-        } catch (e) {
-          console.error('JSON parse error on draft', e);
-        }
+      const records = freshRecords || data;
+
+      // Build a structured, comprehensive data context
+      const todayStr = new Date().toISOString().split('T')[0];
+      const todayCount = records.filter((r: any) => r.created_at?.startsWith(todayStr)).length;
+      const ordersCount = records.filter((r: any) => r.order && r.order.trim()).length;
+      const totalRev = records.reduce((s: number, r: any) => s + (parseFloat(r.total_amount) || 0), 0);
+
+      const allRecords = records.map((r: any) => ({
+        unique_id: r.Unique_id,
+        session_id: r.session_id,
+        name: r.name || 'N/A',
+        phone: r.number || 'N/A',
+        email: r.user_email || 'N/A',
+        order: r.order || 'N/A',
+        total_amount: r.total_amount ?? 'N/A',
+        date: r.created_at ? new Date(r.created_at).toLocaleString() : 'N/A',
+        conversation_preview: r.conversation ? r.conversation.substring(0, 200) : 'N/A',
+      }));
+
+      const systemPrompt = `You are the Tradmak Electrical Intelligence Assistant — a data analyst who ONLY answers questions using the database records provided below. 
+
+CRITICAL RULES:
+1. You MUST ONLY use the data provided in DATABASE_RECORDS. Never use general internet knowledge, stock market data, or anything external.
+2. If the user asks about "stock", "inventory", "orders", or any quantity — look at the "total_amount" and "order" fields in the records below.
+3. When filtering (e.g. "less than 4") — scan the actual numeric total_amount values in the records and list the matching ones.
+4. Always respond with specific names, amounts, and dates from the data. Be precise.
+5. Format lists and comparisons as Markdown tables using | and - separators.
+6. DO NOT use ** for bold. DO NOT use # for headers. Use plain text or tables only.
+7. If a question cannot be answered from the data, say "This information is not in the Tradmak Electrical database."
+
+CURRENT DATABASE SUMMARY:
+- Total Inquiries: ${records.length}
+- Today's Inquiries (${todayStr}): ${todayCount}
+- Inquiries with Orders: ${ordersCount}
+- Total Revenue (sum of total_amount): ${totalRev.toFixed(2)}
+
+DATABASE_RECORDS (ALL ${records.length} records):
+${JSON.stringify(allRecords, null, 2)}
+
+Operator: ${agent?.name || 'Operator'}`;
+
+      const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
+      if (!apiKey) {
+        throw new Error('GEMINI_API_KEY is not configured. Please add it to your environment secrets.');
       }
-      
-      const aiMsg: ChatMessage = {
+
+      const { GoogleGenAI } = await import('@google/genai');
+      const ai = new GoogleGenAI({ apiKey });
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-2.0-flash',
+        contents: `User question: "${text}"`,
+        config: { systemInstruction: systemPrompt },
+      });
+
+      let reply = response.text || 'No data found matching your query.';
+      // Strip any residual markdown bold/header symbols
+      reply = reply.replace(/\*\*/g, '').replace(/^#+\s/gm, '');
+
+      setMessages(prev => [...prev, {
         id: `ai-${Date.now()}`,
         role: 'ai',
-        content: aiResponseText,
+        content: reply,
         created_at: new Date().toISOString(),
-      };
-      setMessages(prev => [...prev, aiMsg]);
-    } catch (err) {
-      console.error('AI Error:', err);
-      setError('Intelligence core timeout. Please retry.');
+      }]);
+    } catch (err: any) {
+      console.error('[ElectricalAI] Error:', err);
+      setError(err.message || 'Intelligence core timeout. Please retry.');
     } finally {
       setIsTyping(false);
     }
@@ -440,9 +430,9 @@ export const TradmakDemoPage: React.FC = () => {
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
                 {[
                   { label: 'Total Inquiries', value: stats.total, icon: Activity, color: 'blue' },
-                  { label: "Today's Leads", value: stats.today, icon: Calendar, color: 'emerald' },
-                  { label: 'Conversion Orders', value: stats.orders, icon: ShoppingCart, color: 'orange' },
-                  { label: 'Est. Revenue', value: `$${(stats.orders * 450).toLocaleString()}`, icon: TrendingUp, color: 'indigo' }
+                  { label: "Today's Inquiries", value: stats.today, icon: Calendar, color: 'emerald' },
+                  { label: 'Orders Placed', value: stats.orders, icon: ShoppingCart, color: 'orange' },
+                  { label: 'Total Revenue', value: `$${stats.totalRevenue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, icon: TrendingUp, color: 'indigo' }
                 ].map((s, i) => (
                   <div key={i} className="bg-white border border-zinc-200 p-6 rounded-2xl shadow-sm hover:shadow-md transition-all">
                     <div className="flex items-center justify-between mb-4">
