@@ -198,69 +198,82 @@ export const TradmakDemoPage: React.FC = () => {
     setMessages(prev => [...prev, userMsg]);
 
     try {
-      // Fetch fresh data directly — don't rely on component state
-      const { data: freshRecords, error: fetchError } = await supabase
-        .from('electrical_chatbot_conversation')
-        .select('*')
-        .order('created_at', { ascending: false });
+      // Fetch both tables in parallel
+      const [
+        { data: freshLeads, error: leadsError },
+        { data: freshStock, error: stockError },
+      ] = await Promise.all([
+        supabase
+          .from('electrical_chatbot_conversation')
+          .select('*')
+          .order('created_at', { ascending: false }),
+        supabase
+          .from('electrical_stock_sheet')
+          .select('material, size, insulation, sheath, armour, cores, diameter, voltage, quantity, unit'),
+      ]);
 
-      if (fetchError) {
-        console.error('[ElectricalAI] Supabase fetch error:', fetchError);
-      }
+      if (leadsError) console.error('[ElectricalAI] Leads fetch error:', leadsError);
+      if (stockError) console.error('[ElectricalAI] Stock fetch error:', stockError);
 
-      const records: any[] = freshRecords && freshRecords.length > 0
-        ? freshRecords
+      const leads: any[] = freshLeads && freshLeads.length > 0
+        ? freshLeads
         : (data.length > 0 ? data : []);
 
-      console.log(`[ElectricalAI] Records available for AI: ${records.length}`);
+      const stockItems: any[] = freshStock || [];
 
-      if (records.length === 0) {
-        setMessages(prev => [...prev, {
-          id: `ai-${Date.now()}`,
-          role: 'ai',
-          content: 'No records were found in the electrical_chatbot_conversation table. Please check that the Supabase table has data and the connection is authenticated.',
-          created_at: new Date().toISOString(),
-        }]);
-        setIsTyping(false);
-        return;
-      }
+      console.log(`[ElectricalAI] Leads: ${leads.length}, Stock items: ${stockItems.length}`);
 
       const todayStr = new Date().toISOString().split('T')[0];
-      const todayCount = records.filter((r: any) => r.created_at?.startsWith(todayStr)).length;
-      const ordersCount = records.filter((r: any) => r.order && String(r.order).trim()).length;
-      const totalRev = records.reduce((s: number, r: any) => s + (parseFloat(r.total_amount) || 0), 0);
+      const todayCount = leads.filter((r: any) => r.created_at?.startsWith(todayStr)).length;
+      const ordersCount = leads.filter((r: any) => r.order && String(r.order).trim()).length;
+      const totalRev = leads.reduce((s: number, r: any) => s + (parseFloat(r.total_amount) || 0), 0);
 
-      // Use clear readable field names so Gemini understands the data
-      const allRecords = records.slice(0, 100).map((r: any) => ({
+      const leadsForAI = leads.slice(0, 80).map((r: any) => ({
         unique_id: r.Unique_id || '',
-        session_id: r.session_id || '',
         name: r.name || 'Unknown',
         phone: r.number || '',
         email: r.user_email || '',
         order_details: r.order || '',
         total_amount: r.total_amount ?? null,
         date: r.created_at ? r.created_at.split('T')[0] : '',
-        conversation: r.conversation ? String(r.conversation).substring(0, 150) : '',
+        conversation: r.conversation ? String(r.conversation).substring(0, 120) : '',
       }));
 
-      const systemPrompt = `You are the Tradmak Electrical Intelligence Assistant. You have access to the full database of customer leads and inquiries from the electrical_chatbot_conversation table.
+      const stockForAI = stockItems.map((s: any) => ({
+        material: s.material || '',
+        size: s.size || '',
+        insulation: s.insulation || '',
+        sheath: s.sheath || '',
+        armour: s.armour || '',
+        cores: s.cores || '',
+        diameter: s.diameter || '',
+        voltage: s.voltage || '',
+        quantity: s.quantity || '0',
+        unit: s.unit || '',
+      }));
 
-DATABASE SUMMARY:
-- Total leads/inquiries: ${records.length}
-- Today's inquiries (${todayStr}): ${todayCount}
-- Leads with order details: ${ordersCount}
-- Total revenue (sum of total_amount): ${totalRev.toFixed(2)}
+      const systemPrompt = `You are the Tradmak Electrical Intelligence Assistant. You have access to two live databases.
+
+--- DATABASE 1: CUSTOMER LEADS (electrical_chatbot_conversation) ---
+Summary: total=${leads.length}, today(${todayStr})=${todayCount}, with_orders=${ordersCount}, total_revenue=${totalRev.toFixed(2)}
+Fields: unique_id, name, phone, email, order_details, total_amount, date, conversation
+LEADS DATA:
+${JSON.stringify(leadsForAI)}
+
+--- DATABASE 2: ELECTRICAL STOCK INVENTORY (electrical_stock_sheet) ---
+Summary: ${stockItems.length} items in inventory
+Fields: material, size, insulation, sheath, armour, cores, diameter, voltage, quantity (stored as text — parse as number for comparisons), unit
+STOCK DATA:
+${JSON.stringify(stockForAI)}
 
 INSTRUCTIONS:
-- Answer ONLY using the DATA below. Never use outside knowledge.
-- "leads" and "inquiries" refer to the records in this database.
-- "stock" or "total_amount" refers to the total_amount field — filter numerically when asked (e.g. "less than 4" means total_amount < 4).
+- Answer ONLY using the data above. Never use outside knowledge.
+- "leads" or "inquiries" → query DATABASE 1.
+- "stock", "inventory", "quantity", "items" → query DATABASE 2. The quantity field is text — treat it as a number when filtering (e.g. "less than 4" means parseFloat(quantity) < 4).
 - Show multiple results as a Markdown table with | separators.
 - Do not use ** bold or # headers.
-- Be specific — include names, amounts, and dates from the records.
-
-DATA (${allRecords.length} records):
-${JSON.stringify(allRecords)}`;
+- Be specific — always include the relevant field values from the matched records.
+- If a question spans both databases (e.g. "leads who ordered items with low stock"), cross-reference both.`;
 
       const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
       if (!apiKey) {
