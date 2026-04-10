@@ -3,8 +3,8 @@ import { GoogleGenAI } from "@google/genai";
 import { Message, Contact, Article } from "../types";
 import { supabase } from './supabase';
 
-const PRIMARY_MODEL = 'gemini-3-flash-preview';
-const FALLBACK_MODELS = ['gemini-3.1-pro-preview', 'gemini-3.1-flash-lite-preview'];
+const PRIMARY_MODEL = 'gemini-1.5-flash';
+const FALLBACK_MODELS = ['gemini-1.5-flash-latest', 'gemini-1.5-flash-8b'];
 
 async function callAIWithRetry(apiKey: string, config: any, retryCount = 0): Promise<any> {
   const ai = new GoogleGenAI({ apiKey });

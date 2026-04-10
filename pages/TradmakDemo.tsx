@@ -212,51 +212,44 @@ export const TradmakDemoPage: React.FC = () => {
       const ordersCount = records.filter((r: any) => r.order && r.order.trim()).length;
       const totalRev = records.reduce((s: number, r: any) => s + (parseFloat(r.total_amount) || 0), 0);
 
-      const allRecords = records.map((r: any) => ({
-        unique_id: r.Unique_id,
-        session_id: r.session_id,
-        name: r.name || 'N/A',
-        phone: r.number || 'N/A',
-        email: r.user_email || 'N/A',
-        order: r.order || 'N/A',
-        total_amount: r.total_amount ?? 'N/A',
-        date: r.created_at ? new Date(r.created_at).toLocaleString() : 'N/A',
-        conversation_preview: r.conversation ? r.conversation.substring(0, 200) : 'N/A',
+      // Compress records to minimise token usage — use short keys, no whitespace
+      const allRecords = records.slice(0, 150).map((r: any) => ({
+        id: r.Unique_id || r.session_id,
+        n: r.name || '',
+        ph: r.number || '',
+        em: r.user_email || '',
+        ord: r.order || '',
+        amt: r.total_amount ?? '',
+        dt: r.created_at ? r.created_at.split('T')[0] : '',
+        conv: r.conversation ? r.conversation.substring(0, 120) : '',
       }));
 
-      const systemPrompt = `You are the Tradmak Electrical Intelligence Assistant — a data analyst who ONLY answers questions using the database records provided below. 
+      const systemPrompt = `You are the Tradmak Electrical Intelligence Assistant. Answer ONLY using the DATABASE_RECORDS below — never use external knowledge.
 
-CRITICAL RULES:
-1. You MUST ONLY use the data provided in DATABASE_RECORDS. Never use general internet knowledge, stock market data, or anything external.
-2. If the user asks about "stock", "inventory", "orders", or any quantity — look at the "total_amount" and "order" fields in the records below.
-3. When filtering (e.g. "less than 4") — scan the actual numeric total_amount values in the records and list the matching ones.
-4. Always respond with specific names, amounts, and dates from the data. Be precise.
-5. Format lists and comparisons as Markdown tables using | and - separators.
-6. DO NOT use ** for bold. DO NOT use # for headers. Use plain text or tables only.
-7. If a question cannot be answered from the data, say "This information is not in the Tradmak Electrical database."
+Field key: id=unique_id, n=name, ph=phone, em=email, ord=order_details, amt=total_amount, dt=date, conv=conversation_excerpt
 
-CURRENT DATABASE SUMMARY:
-- Total Inquiries: ${records.length}
-- Today's Inquiries (${todayStr}): ${todayCount}
-- Inquiries with Orders: ${ordersCount}
-- Total Revenue (sum of total_amount): ${totalRev.toFixed(2)}
+RULES:
+- Filter on amt for numeric queries (e.g. "less than 4" → find rows where amt<4).
+- List results as a Markdown table (| col | col |) when showing multiple rows.
+- No ** bold, no # headers.
+- If data is absent, say "Not found in Tradmak Electrical database."
 
-DATABASE_RECORDS (ALL ${records.length} records):
-${JSON.stringify(allRecords, null, 2)}
+SUMMARY: total=${records.length}, today(${todayStr})=${todayCount}, with_orders=${ordersCount}, revenue_sum=${totalRev.toFixed(2)}
 
-Operator: ${agent?.name || 'Operator'}`;
+RECORDS:
+${JSON.stringify(allRecords)}`;
 
       const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
       if (!apiKey) {
-        throw new Error('GEMINI_API_KEY is not configured. Please add it to your environment secrets.');
+        throw new Error('GEMINI_API_KEY is not configured. Please add it to your Replit Secrets.');
       }
 
       const { GoogleGenAI } = await import('@google/genai');
       const ai = new GoogleGenAI({ apiKey });
 
       const response = await ai.models.generateContent({
-        model: 'gemini-2.0-flash',
-        contents: `User question: "${text}"`,
+        model: 'gemini-1.5-flash',
+        contents: `Question: ${text}`,
         config: { systemInstruction: systemPrompt },
       });
 
