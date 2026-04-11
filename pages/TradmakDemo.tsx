@@ -58,6 +58,7 @@ export const TradmakDemoPage: React.FC = () => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [pendingEmail, setPendingEmail] = useState<{ email: string; subject: string; body: string } | null>(null);
+  const pendingEmailRef = useRef<{ email: string; subject: string; body: string } | null>(null);
 
   useEffect(() => {
     fetchData();
@@ -199,34 +200,37 @@ export const TradmakDemoPage: React.FC = () => {
     setMessages(prev => [...prev, userMsg]);
 
     // ── Email approval interception ──────────────────────────────────────
-    if (pendingEmail && text.toLowerCase().trim() === 'yes') {
+    // Use ref (not state) to avoid stale closure — ref is always current
+    const activePending = pendingEmailRef.current;
+    if (activePending && text.toLowerCase().trim() === 'yes') {
+      pendingEmailRef.current = null;
+      setPendingEmail(null);
+      console.log('[ElectricalAI] Firing webhook to:', activePending.email);
       try {
         const res = await fetch('https://n8n.srv1040836.hstgr.cloud/webhook/supplier-email', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            email: pendingEmail.email,
-            subject: pendingEmail.subject,
-            body: pendingEmail.body,
+            email: activePending.email,
+            subject: activePending.subject,
+            body: activePending.body,
           }),
         });
-        const success = res.ok;
-        setPendingEmail(null);
+        console.log('[ElectricalAI] Webhook response status:', res.status);
         setMessages(prev => [...prev, {
           id: `ai-${Date.now()}`,
           role: 'ai',
-          content: success
-            ? '[SUCCESS_ANIMATION]The supplier has been contacted successfully!'
-            : 'The webhook returned an error. Please check the n8n workflow and try again.',
+          content: res.ok
+            ? '[EMAIL_SENT]'
+            : `Webhook returned status ${res.status}. Please check the n8n workflow.`,
           created_at: new Date().toISOString(),
         }]);
       } catch (webhookErr: any) {
         console.error('[ElectricalAI] Webhook error:', webhookErr);
-        setPendingEmail(null);
         setMessages(prev => [...prev, {
           id: `ai-${Date.now()}`,
           role: 'ai',
-          content: 'Failed to reach the email webhook. Please check your n8n server and try again.',
+          content: 'Could not reach the email server. Please check your n8n server connection.',
           created_at: new Date().toISOString(),
         }]);
       }
@@ -235,7 +239,10 @@ export const TradmakDemoPage: React.FC = () => {
     }
 
     // Clear pending email if user asked a new question instead of approving
-    if (pendingEmail) setPendingEmail(null);
+    if (pendingEmailRef.current) {
+      pendingEmailRef.current = null;
+      setPendingEmail(null);
+    }
 
     try {
       // Fetch all three tables in parallel
@@ -376,11 +383,14 @@ Do you approve this email? Reply "yes" to send.
       if (draftMatch) {
         try {
           const draft = JSON.parse(draftMatch[1].trim());
-          setPendingEmail({ email: draft.email, subject: draft.subject, body: draft.body });
+          const emailDraft = { email: draft.email, subject: draft.subject, body: draft.body };
+          pendingEmailRef.current = emailDraft;  // ref first — always readable in async closures
+          setPendingEmail(emailDraft);            // state — drives the UI banner
+          console.log('[ElectricalAI] Email draft stored:', emailDraft.email);
         } catch (parseErr) {
           console.warn('[ElectricalAI] Could not parse email draft JSON:', parseErr);
         }
-        // Remove the marker from the displayed message
+        // Remove the hidden marker from the displayed message
         reply = reply.replace(/\[EMAIL_DRAFT\][\s\S]*?\[\/EMAIL_DRAFT\]/g, '').trim();
       }
 
@@ -402,27 +412,17 @@ Do you approve this email? Reply "yes" to send.
   };
 
   const renderMessageContent = (content: string) => {
-    if (content.includes('[SUCCESS_ANIMATION]')) {
-      const parts = content.split('[SUCCESS_ANIMATION]');
+    if (content === '[EMAIL_SENT]') {
       return (
-        <div>
-          {parts[0]}
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', margin: '20px 0', fontFamily: 'system-ui, -apple-system, sans-serif' }}>
-            <svg width="60" height="60" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ animation: 'popIn 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards' }}>
-              <path d="M22 2L11 13" style={{ strokeDasharray: 20, strokeDashoffset: 20, animation: 'draw 0.5s 0.3s forwards' }} />
-              <path d="M22 2L15 22L11 13L2 9L22 2Z" style={{ strokeDasharray: 60, strokeDashoffset: 60, animation: 'draw 0.8s 0.1s forwards' }} />
+        <div className="flex flex-col items-center justify-center py-4 gap-3">
+          <div className="w-14 h-14 rounded-full bg-emerald-100 border-2 border-emerald-300 flex items-center justify-center">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M22 2L11 13" />
+              <path d="M22 2L15 22L11 13L2 9L22 2Z" />
             </svg>
-            <p style={{ color: '#10b981', fontWeight: 600, marginTop: '15px', opacity: 0, animation: 'fadeUp 0.4s 0.8s forwards' }}>Email Sent Successfully!</p>
-            <style>
-              {`
-                @keyframes popIn { 0% { transform: scale(0); } 100% { transform: scale(1); } }
-                @keyframes draw { to { stroke-dashoffset: 0; } }
-                @keyframes fadeUp { to { opacity: 1; transform: translateY(-5px); } }
-              `}
-            </style>
           </div>
-          <p className="mt-2 text-sm text-zinc-800 text-center">The supplier has been contacted successfully!</p>
-          {parts[1]}
+          <p className="text-sm font-bold text-emerald-700">Email Sent Successfully!</p>
+          <p className="text-xs text-zinc-500 text-center">The supplier has been contacted.</p>
         </div>
       );
     }
