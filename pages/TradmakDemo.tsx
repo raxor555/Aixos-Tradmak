@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { supabase } from '../services/supabase';
 import { useStore } from '../store/useStore';
+import { chatHistoryService, ChatSession } from '../services/chatHistory.service';
 import { 
   Zap, 
   Send, 
@@ -20,7 +21,10 @@ import {
   MessageSquare,
   ChevronRight,
   RefreshCw,
-  X
+  X,
+  Plus,
+  Trash2,
+  History
 } from 'lucide-react';
 import {
   AreaChart,
@@ -60,6 +64,12 @@ export const TradmakDemoPage: React.FC = () => {
   const [pendingEmail, setPendingEmail] = useState<{ email: string; subject: string; body: string } | null>(null);
   const pendingEmailRef = useRef<{ email: string; subject: string; body: string } | null>(null);
 
+  // Chat history state
+  const [sessions, setSessions] = useState<ChatSession[]>([]);
+  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
+  const [loadingSessions, setLoadingSessions] = useState(false);
+  const [sessionTitleSet, setSessionTitleSet] = useState(false);
+
   useEffect(() => {
     fetchData();
   }, []);
@@ -69,6 +79,74 @@ export const TradmakDemoPage: React.FC = () => {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [messages, isTyping, activeTab]);
+
+  // Load sessions when assistant tab is active
+  useEffect(() => {
+    if (activeTab === 'assistant') {
+      loadSessions();
+    }
+  }, [activeTab]);
+
+  const loadSessions = async () => {
+    setLoadingSessions(true);
+    const list = await chatHistoryService.listSessions();
+    setSessions(list);
+    setLoadingSessions(false);
+  };
+
+  const handleNewChat = async () => {
+    const session = await chatHistoryService.createSession();
+    if (session) {
+      setCurrentSessionId(session.id);
+      setMessages([]);
+      setSessionTitleSet(false);
+      setError(null);
+      pendingEmailRef.current = null;
+      setPendingEmail(null);
+      await loadSessions();
+    }
+  };
+
+  const handleLoadSession = async (sessionId: string) => {
+    setCurrentSessionId(sessionId);
+    setSessionTitleSet(true);
+    setError(null);
+    pendingEmailRef.current = null;
+    setPendingEmail(null);
+    const msgs = await chatHistoryService.getSessionMessages(sessionId);
+    setMessages(msgs.map(m => ({
+      id: m.id,
+      role: m.role,
+      content: m.content,
+      created_at: m.created_at,
+    })));
+  };
+
+  const handleDeleteSession = async (sessionId: string) => {
+    const success = await chatHistoryService.deleteSession(sessionId);
+    if (success) {
+      if (currentSessionId === sessionId) {
+        setCurrentSessionId(null);
+        setMessages([]);
+        setSessionTitleSet(false);
+      }
+      await loadSessions();
+    }
+  };
+
+  const formatRelativeTime = (dateStr: string) => {
+    const now = new Date();
+    const date = new Date(dateStr);
+    const diffMs = now.getTime() - date.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+    if (diffMins < 1) return 'Just now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+    if (diffHours < 24) return `${diffHours}h ago`;
+    if (diffDays < 7) return `${diffDays}d ago`;
+    return date.toLocaleDateString();
+  };
 
   const fetchData = async () => {
     setLoadingData(true);
@@ -191,6 +269,21 @@ export const TradmakDemoPage: React.FC = () => {
     setIsTyping(true);
     setError(null);
 
+    let currentSession = currentSessionId;
+    if (!currentSession) {
+      // Create session on first message if none active
+      const session = await chatHistoryService.createSession(text.substring(0, 40));
+      if (session) {
+        currentSession = session.id;
+        setCurrentSessionId(session.id);
+        setSessionTitleSet(true);
+      }
+    } else if (!sessionTitleSet) {
+      // Update title of existing default session
+      await chatHistoryService.updateSessionTitle(currentSession, text.substring(0, 40));
+      setSessionTitleSet(true);
+    }
+
     const userMsg: ChatMessage = {
       id: `user-${Date.now()}`,
       role: 'user',
@@ -198,6 +291,11 @@ export const TradmakDemoPage: React.FC = () => {
       created_at: new Date().toISOString(),
     };
     setMessages(prev => [...prev, userMsg]);
+    
+    // Save to DB
+    if (currentSession) {
+      await chatHistoryService.addMessage(currentSession, 'user', text);
+    }
 
     // ── Email approval interception ──────────────────────────────────────
     // Use ref (not state) to avoid stale closure — ref is always current
@@ -394,12 +492,20 @@ Do you approve this email? Reply "yes" to send.
         reply = reply.replace(/\[EMAIL_DRAFT\][\s\S]*?\[\/EMAIL_DRAFT\]/g, '').trim();
       }
 
-      setMessages(prev => [...prev, {
+      const newReply = {
         id: `ai-${Date.now()}`,
-        role: 'ai',
+        role: 'ai' as const,
         content: reply,
         created_at: new Date().toISOString(),
-      }]);
+      };
+      
+      setMessages(prev => [...prev, newReply]);
+      
+      // Save AI reply to DB
+      if (currentSession) {
+        await chatHistoryService.addMessage(currentSession, 'ai', reply);
+        await loadSessions(); // Refresh sidebar order
+      }
     } catch (err: any) {
       console.error('[ElectricalAI] Error:', err);
       const msg = err?.message?.includes('quota') || err?.status === 429
@@ -698,38 +804,64 @@ Do you approve this email? Reply "yes" to send.
           )}
 
           {activeTab === 'assistant' && (
-            <div className="bg-white border border-zinc-200 rounded-[2.5rem] shadow-sm h-[700px] flex overflow-hidden animate-slide-up bg-white">
+            <div className="bg-white border border-zinc-200 rounded-[2.5rem] shadow-sm h-[700px] flex overflow-hidden animate-slide-up">
                {/* Left Sidebar */}
-               <div className="w-72 border-r border-zinc-100 bg-zinc-50/50 p-8 hidden lg:flex flex-col">
-                  <div className="flex items-center gap-3 mb-10">
-                     <div className="w-10 h-10 rounded-2xl bg-blue-600 flex items-center justify-center shadow-lg shadow-blue-600/10">
-                        <Bot className="w-5 h-5 text-white" />
-                     </div>
-                     <div>
-                        <h3 className="font-bold text-zinc-900 leading-tight">AI Assistant</h3>
-                        <p className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider">Connected</p>
-                     </div>
+               <div className="w-72 border-r border-zinc-100 bg-zinc-50/50 flex flex-col hidden lg:flex">
+                  <div className="p-6 border-b border-zinc-100">
+                    <button 
+                      onClick={handleNewChat}
+                      className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl transition-all shadow-sm font-bold text-sm"
+                    >
+                      <Plus className="w-4 h-4" /> New Chat
+                    </button>
                   </div>
-                  <div className="space-y-6">
-                     <div>
-                        <p className="text-[10px] font-black text-zinc-400 uppercase tracking-[0.2em] mb-4">Core Functions</p>
-                        <ul className="space-y-3">
-                           {[
-                             'Data Auditing',
-                             'Record Summary',
-                             'Tabular Reporting',
-                             'Pattern ID'
-                           ].map((item, i) => (
-                             <li key={i} className="flex items-center gap-2 text-xs font-bold text-zinc-600 bg-white border border-zinc-200/50 p-3 rounded-xl shadow-sm">
-                               <div className="w-1 h-1 rounded-full bg-blue-500" /> {item}
-                             </li>
-                           ))}
-                        </ul>
-                     </div>
-                  </div>
-                  <div className="mt-auto p-4 bg-blue-50 rounded-2xl border border-blue-100/50">
-                     <p className="text-[10px] font-bold text-blue-600 uppercase tracking-widest mb-1">Knowledge Engine</p>
-                     <p className="text-[11px] text-blue-900 leading-relaxed">Ask anything about inquiry volume, specific leads, or historical trends.</p>
+                  
+                  <div className="flex-1 overflow-y-auto custom-scrollbar">
+                    {loadingSessions ? (
+                      <div className="p-8 flex justify-center"><Loader2 className="w-5 h-5 animate-spin text-zinc-400" /></div>
+                    ) : sessions.length === 0 ? (
+                      <div className="p-8 text-center text-zinc-400 text-xs font-semibold">No past sessions</div>
+                    ) : (
+                      <div className="p-2 space-y-1">
+                        {sessions.map(session => (
+                          <div 
+                            key={session.id}
+                            onClick={() => handleLoadSession(session.id)}
+                            className={`group relative flex items-start gap-3 p-3 rounded-xl cursor-pointer transition-all ${
+                              currentSessionId === session.id 
+                                ? 'bg-white shadow-sm border border-zinc-200' 
+                                : 'hover:bg-zinc-100 border border-transparent'
+                            }`}
+                          >
+                            <div className={`mt-0.5 w-6 h-6 rounded flex items-center justify-center flex-shrink-0 ${
+                              currentSessionId === session.id ? 'bg-blue-50 text-blue-600' : 'bg-transparent text-zinc-400'
+                            }`}>
+                              <MessageSquare className="w-3.5 h-3.5" />
+                            </div>
+                            <div className="flex-1 min-w-0 pr-6">
+                              <h4 className={`text-xs font-bold truncate ${currentSessionId === session.id ? 'text-zinc-900' : 'text-zinc-600'}`}>
+                                {session.title || 'New Chat'}
+                              </h4>
+                              <p className="text-[10px] text-zinc-400 truncate mt-0.5">
+                                {session.last_message_preview || 'No messages'}
+                              </p>
+                            </div>
+                            <div className="absolute right-3 top-3 text-[9px] font-bold text-zinc-400 opacity-100 group-hover:opacity-0 transition-opacity">
+                              {formatRelativeTime(session.updated_at)}
+                            </div>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDeleteSession(session.id);
+                              }}
+                              className="absolute right-2 top-3 opacity-0 group-hover:opacity-100 p-1.5 text-zinc-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                </div>
 
@@ -739,7 +871,7 @@ Do you approve this email? Reply "yes" to send.
                      <h3 className="text-sm font-bold text-zinc-900 flex items-center gap-2">
                        <MessageSquare className="w-4 h-4 text-blue-600" /> Internal Signal Direct Interface
                      </h3>
-                     <button onClick={() => setMessages([])} className="text-[10px] font-bold uppercase text-zinc-400 hover:text-red-500 transition-colors">Clear Stream</button>
+                     <button onClick={handleNewChat} className="text-[10px] font-bold uppercase text-zinc-400 hover:text-blue-600 transition-colors">Clear Stream</button>
                   </div>
                   
                   <div ref={scrollRef} className="flex-1 overflow-y-auto p-6 md:p-10 space-y-10 custom-scrollbar">
